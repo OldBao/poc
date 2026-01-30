@@ -2,9 +2,9 @@ import os
 import yaml
 
 OUTPUT_FORMAT = """
-You must respond with ONLY valid JSON in one of these two formats:
+You must respond with ONLY valid JSON in one of these formats:
 
-If the request is clear and unambiguous:
+If the request is clear and you can generate SQL:
 {
   "type": "sql",
   "sql": "SELECT ... (the complete SQL query)"
@@ -14,6 +14,14 @@ If the request is ambiguous (e.g., "revenue" could mean multiple metrics):
 {
   "type": "ambiguous",
   "candidates": ["Candidate interpretation 1", "Candidate interpretation 2"]
+}
+
+If the metric is clear but required parameters are missing (market, date range, etc.):
+{
+  "type": "need_info",
+  "metric": "The identified metric name",
+  "missing": ["market", "date_range"],
+  "message": "A short question asking for the missing info"
 }
 """
 

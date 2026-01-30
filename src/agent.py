@@ -21,16 +21,70 @@ class Agent:
         )
 
 
+def _read_input():
+    """Read user input, returning None on EOF/interrupt."""
+    try:
+        return input("\nQ: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+
+def _is_quit(text):
+    return text.lower() in ("quit", "exit", "q")
+
+
+def _handle_result(agent, result):
+    """Handle a result, prompting for follow-up if needed. Returns True to continue, False to quit."""
+    while True:
+        rtype = result.get("type")
+
+        if rtype == "sql":
+            print(f"\n--- Generated SQL ---\n{result['sql']}")
+            return True
+
+        if rtype == "ambiguous":
+            candidates = result["candidates"]
+            print("\nAmbiguous request. Did you mean:")
+            for i, candidate in enumerate(candidates, 1):
+                print(f"  {i}. {candidate}")
+            print("Select a number or rephrase your question.")
+            follow_up = _read_input()
+            if follow_up is None or _is_quit(follow_up):
+                return False
+            if not follow_up:
+                return True
+            if follow_up.isdigit() and 1 <= int(follow_up) <= len(candidates):
+                follow_up = candidates[int(follow_up) - 1]
+
+        elif rtype == "need_info":
+            print(f"\n{result.get('message', 'Please provide more details.')}")
+            follow_up = _read_input()
+            if follow_up is None or _is_quit(follow_up):
+                return False
+            if not follow_up:
+                return True
+            # Combine metric context with user's answer
+            metric = result.get("metric", "")
+            follow_up = f"{metric} — user provided: {follow_up}. Generate the SQL query."
+
+        else:
+            print(f"\nUnexpected response: {result}")
+            return True
+
+        try:
+            result = agent.ask(follow_up)
+        except Exception as e:
+            print(f"\nError: {e}")
+            return True
+
+
 def main():
     agent = Agent()
     print("S&R&A Metric Agent (type 'quit' to exit)")
     print("-" * 50)
     while True:
-        try:
-            question = input("\nQ: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            break
-        if question.lower() in ("quit", "exit", "q"):
+        question = _read_input()
+        if question is None or _is_quit(question):
             break
         if not question:
             continue
@@ -41,47 +95,8 @@ def main():
             print(f"\nError: {e}")
             continue
 
-        if result.get("type") == "ambiguous":
-            candidates = result["candidates"]
-            print("\nAmbiguous request. Did you mean:")
-            for i, candidate in enumerate(candidates, 1):
-                print(f"  {i}. {candidate}")
-            print("Select a number or rephrase your question.")
-
-            try:
-                selection = input("\nQ: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                break
-            if selection.lower() in ("quit", "exit", "q"):
-                break
-            if selection.isdigit() and 1 <= int(selection) <= len(candidates):
-                chosen = candidates[int(selection) - 1]
-                try:
-                    result = agent.ask(chosen)
-                except Exception as e:
-                    print(f"\nError: {e}")
-                    continue
-                if result.get("type") == "sql":
-                    print(f"\n--- Generated SQL ---\n{result['sql']}")
-                else:
-                    print(f"\nResponse: {result}")
-            elif selection:
-                # Treat as a new question
-                try:
-                    result = agent.ask(selection)
-                except Exception as e:
-                    print(f"\nError: {e}")
-                    continue
-                if result.get("type") == "sql":
-                    print(f"\n--- Generated SQL ---\n{result['sql']}")
-                elif result.get("type") == "ambiguous":
-                    print("\nStill ambiguous. Please be more specific.")
-                else:
-                    print(f"\nResponse: {result}")
-        elif result.get("type") == "sql":
-            print(f"\n--- Generated SQL ---\n{result['sql']}")
-        else:
-            print(f"\nUnexpected response: {result}")
+        if not _handle_result(agent, result):
+            break
 
 
 if __name__ == "__main__":
