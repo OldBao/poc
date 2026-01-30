@@ -1,6 +1,7 @@
 metric:
   name: Rebate
   aliases: ["total rebate", "返利", "rebate"]
+  tags: [cost]
   type: simple
   aggregation: avg
   unit: usd

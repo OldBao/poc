@@ -50,3 +50,19 @@ def test_ambiguous_query():
     extractor = Extractor(llm_client=mock_llm, metric_names=["Ads Gross Rev", "Net Ads Rev"])
     result = extractor.extract("What's the revenue?")
     assert result.clarification_needed is not None
+
+
+def test_extraction_prompt_contains_today_date():
+    mock_llm = MagicMock()
+    mock_llm.call.return_value = {
+        "intent": "query",
+        "metrics": [],
+        "dimensions": {},
+        "clarification_needed": None,
+    }
+    extractor = Extractor(llm_client=mock_llm, metric_names=["DAU"])
+    # The system prompt should contain today's date info
+    assert "today" in extractor.system_prompt.lower() or "current date" in extractor.system_prompt.lower()
+    # Should contain the current year
+    from datetime import date
+    assert str(date.today().year) in extractor.system_prompt

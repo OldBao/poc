@@ -2,6 +2,7 @@ metric:
   name: Ads Rev Pct by Channel
   aliases: ["ads revenue ratio by channel", "广告收入占比按渠道", "ads rev% by channel",
             "search ads ratio", "DD ads ratio"]
+  tags: [revenue, ads, efficiency]
   type: complex
   snippet_file: snippets/ads_rev_by_channel.sql
   sub_metrics:

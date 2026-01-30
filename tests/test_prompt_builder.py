@@ -1,6 +1,9 @@
 import os
 import tempfile
+from datetime import date
+
 import yaml
+from src.models import AssemblyContext, JoinAdjustment, WrapAdjustment
 from src.prompt_builder import PromptBuilder
 
 
@@ -104,3 +107,50 @@ def test_prompt_has_conversation_instructions():
     prompt = pb.build()
     assert "ask in plain text" in prompt.lower() or "ask the user" in prompt.lower()
     assert "need_info" not in prompt
+
+
+def test_build_assembled_prompt_with_join():
+    pb = PromptBuilder()
+    ctx = AssemblyContext(
+        base_snippet="SELECT * FROM base WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'",
+        joins=[JoinAdjustment(
+            name="BR SCS Credit",
+            snippet="SELECT grass_date, sum(free_rev) AS br_scs FROM t GROUP BY 1",
+            join_keys=["grass_date", "grass_region"],
+        )],
+    )
+    prompt = pb.build_assembled_prompt(ctx, metric_name="Net Ads Rev")
+    assert "Base Query" in prompt
+    assert "base WHERE" in prompt
+    assert "Adjustments to Apply" in prompt
+    assert "BR SCS Credit" in prompt
+    assert "LEFT JOIN" in prompt
+    assert "grass_date, grass_region" in prompt
+
+
+def test_build_assembled_prompt_with_filter():
+    pb = PromptBuilder()
+    ctx = AssemblyContext(
+        base_snippet="SELECT 1",
+        filters=["AND seller_type != '1P'"],
+    )
+    prompt = pb.build_assembled_prompt(ctx, metric_name="Test")
+    assert "Additional filter" in prompt or "filter" in prompt.lower()
+    assert "seller_type" in prompt
+
+
+def test_assembled_prompt_contains_today_date():
+    pb = PromptBuilder()
+    ctx = AssemblyContext(base_snippet="SELECT 1")
+    prompt = pb.build_assembled_prompt(ctx, metric_name="Test")
+    today = date.today()
+    assert today.isoformat() in prompt or str(today.year) in prompt
+
+
+def test_build_assembled_prompt_no_adjustments():
+    pb = PromptBuilder()
+    ctx = AssemblyContext(base_snippet="SELECT 1")
+    prompt = pb.build_assembled_prompt(ctx, metric_name="Test")
+    assert "Base Query" in prompt
+    # Should not have adjustments section when there are none
+    assert "Adjustments to Apply" not in prompt

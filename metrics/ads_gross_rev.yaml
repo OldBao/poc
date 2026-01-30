@@ -1,6 +1,7 @@
 metric:
   name: Ads Gross Rev
   aliases: ["ads revenue", "广告收入", "ads gross rev", "ads rev"]
+  tags: [revenue, gross, ads]
   type: complex
   snippet_file: snippets/ads_gross_rev.sql
   unit: usd

@@ -8,6 +8,7 @@ from src.assembler import Assembler
 from src.validator import SQLValidator
 from src.value_index import ValueIndex
 from src.prompt_builder import PromptBuilder
+from src.rule_engine import RuleEngine
 
 
 class Agent:
@@ -16,6 +17,7 @@ class Agent:
         metrics_dir: str = "metrics",
         snippets_dir: str = "snippets",
         templates_dir: str = "templates",
+        rules_dir: str = "rules",
         value_index_path: str = "value_index.db",
         model: str = "gpt-4o",
         llm_client: Optional[LLMClient] = None,
@@ -46,6 +48,9 @@ class Agent:
             snippets_dir=snippets_dir,
         )
         self.snippets_dir = snippets_dir
+
+        self.rule_engine = RuleEngine(rules_dir=rules_dir)
+        self.rule_engine.load()
 
     def ask(self, question: str) -> dict:
         # Step 1: Extract intent and entities
@@ -108,22 +113,29 @@ class Agent:
             return {"type": "error", "message": f"No snippet file for complex metric '{metric.name}'"}
 
         with open(snippet_path) as f:
-            snippet_sql = f.read()
+            base_snippet = f.read()
 
-        dim_values = {}
-        for source in metric.sources:
-            for col_name in source.columns.values():
-                vals = self.value_index.get_values(source.table, col_name)
-                if vals:
-                    dim_values[col_name] = vals
-
-        system_prompt = self.prompt_builder.build_complex_sql_prompt(
-            snippet_sql=snippet_sql,
-            metric_name=metric.name,
-            dimension_values=dim_values,
+        # Match rules based on query context
+        date_range = dims.get("date_range", {})
+        matched_rules = self.rule_engine.match(
+            market=dims.get("market"),
+            metric_tags=getattr(metric, "tags", []),
+            query_date_start=date_range.get("start"),
         )
 
-        user_msg = f"Question: {question}\nMarket: {dims.get('market', 'all')}\nDate range: {dims.get('date_range', {})}"
+        # Build assembly context
+        assembly_context = self.rule_engine.build_context(
+            base_snippet=base_snippet,
+            matched_rules=matched_rules,
+        )
+
+        # Build prompt from assembly context
+        system_prompt = self.prompt_builder.build_assembled_prompt(
+            assembly_context,
+            metric_name=metric.name,
+        )
+
+        user_msg = f"Question: {question}\nMarket: {dims.get('market', 'all')}\nDate range: {date_range}"
         result = self.llm.call(system_prompt=system_prompt, user_message=user_msg)
 
         sql = result.get("sql", "") if isinstance(result, dict) else str(result)

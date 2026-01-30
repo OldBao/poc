@@ -1,6 +1,7 @@
 metric:
   name: Buyer UV
   aliases: ["buyer count", "买家数", "buyer uv"]
+  tags: [volume]
   type: simple
   aggregation: avg
   unit: count

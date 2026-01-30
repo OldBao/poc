@@ -1,6 +1,7 @@
 metric:
   name: Gross Take Rate
   aliases: ["take rate", "货币化率", "gross take rate"]
+  tags: [efficiency]
   type: derived
   formula: "ads_gross_rev / gmv"
   depends_on: ["Ads Gross Rev", "GMV"]

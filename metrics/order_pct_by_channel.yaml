@@ -2,6 +2,7 @@ metric:
   name: Order Pct by Channel
   aliases: ["order ratio by channel", "订单占比按渠道", "order% by channel",
             "search order ratio", "DD order ratio", "YMAL order ratio"]
+  tags: [volume, efficiency]
   type: complex
   snippet_file: snippets/order_by_channel.sql
   sub_metrics:

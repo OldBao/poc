@@ -1,10 +1,13 @@
 from dataclasses import dataclass
+from datetime import date
 from typing import Optional
 
 from src.llm_client import LLMClient
 
 
 EXTRACTION_PROMPT = """You are an intent and entity extractor for S&R&A metrics questions.
+
+Today's date is {today}. When the user mentions a month without a year, default to the current year ({current_year}). When the user mentions a month that is in the future relative to today, use the previous year.
 
 Given a user question, extract:
 - intent: "query" (single metric lookup), "compare" (MoM/YoY comparison), "trend" (time series), "breakdown" (by channel/module)
@@ -43,8 +46,11 @@ class ExtractionResult:
 class Extractor:
     def __init__(self, llm_client: LLMClient, metric_names: list[str]):
         self.llm = llm_client
+        today = date.today()
         self.system_prompt = EXTRACTION_PROMPT.format(
-            metric_names="\n".join(f"- {n}" for n in metric_names)
+            metric_names="\n".join(f"- {n}" for n in metric_names),
+            today=today.isoformat(),
+            current_year=today.year,
         )
 
     def extract(self, question: str) -> ExtractionResult:
