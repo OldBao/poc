@@ -1,7 +1,7 @@
 # tests/test_agent.py
 import json
 from unittest.mock import patch, MagicMock
-from src.agent import Agent
+from src.agent import Agent, parse_response
 
 
 def test_start_sends_system_and_user_message():
@@ -76,3 +76,27 @@ def test_follow_up_accumulates_multiple_turns():
     assert raw == '{"type": "sql", "sql": "SELECT 1"}'
     messages = mock_llm.chat.call_args[1]["messages"]
     assert len(messages) == 6
+
+
+def test_parse_response_sql_json():
+    rtype, data = parse_response('{"type": "sql", "sql": "SELECT 1"}')
+    assert rtype == "sql"
+    assert data == {"type": "sql", "sql": "SELECT 1"}
+
+
+def test_parse_response_ambiguous_json():
+    rtype, data = parse_response('{"type": "ambiguous", "candidates": ["A", "B"]}')
+    assert rtype == "ambiguous"
+    assert data == {"type": "ambiguous", "candidates": ["A", "B"]}
+
+
+def test_parse_response_plain_text():
+    rtype, data = parse_response("Which market do you need?")
+    assert rtype == "text"
+    assert data == "Which market do you need?"
+
+
+def test_parse_response_json_in_markdown_fences():
+    rtype, data = parse_response('```json\n{"type": "sql", "sql": "SELECT 1"}\n```')
+    assert rtype == "sql"
+    assert data == {"type": "sql", "sql": "SELECT 1"}
