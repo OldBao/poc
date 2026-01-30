@@ -1,5 +1,5 @@
 import pytest
-from src.resolver import Resolver, ResolverResult
+from src.resolver import Resolver
 from src.registry import MetricRegistry
 from src.value_index import ValueIndex
 from src.extractor import ExtractionResult
