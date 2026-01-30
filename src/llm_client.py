@@ -1,4 +1,5 @@
 import json
+import re
 import openai
 
 
@@ -16,13 +17,32 @@ class LLMClient:
                 {"role": "user", "content": user_message},
             ],
         )
-        raw = response.choices[0].message.content.strip()
-        return self._parse(raw)
+        raw = response.choices[0].message.content
+        if raw is None:
+            raise ValueError("LLM returned empty response")
+        return self._parse(raw.strip())
+
+    def call_raw(self, system_prompt: str, user_message: str) -> list:
+        """Call LLM and return parsed JSON list (for analyzer use)."""
+        response = self.client.chat.completions.create(
+            model=self.model,
+            temperature=0,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+        )
+        raw = response.choices[0].message.content
+        if raw is None:
+            raise ValueError("LLM returned empty response")
+        return json.loads(self._strip_fences(raw.strip()))
+
+    @staticmethod
+    def _strip_fences(text: str) -> str:
+        text = text.strip()
+        return re.sub(r"^```\w*\n|```\s*$", "", text).strip()
 
     @staticmethod
     def _parse(raw: str) -> dict:
-        text = raw.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:-1])
+        text = LLMClient._strip_fences(raw)
         return json.loads(text)

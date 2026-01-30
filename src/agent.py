@@ -35,7 +35,11 @@ def main():
         if not question:
             continue
 
-        result = agent.ask(question)
+        try:
+            result = agent.ask(question)
+        except Exception as e:
+            print(f"\nError: {e}")
+            continue
 
         if result.get("type") == "ambiguous":
             print("\nAmbiguous request. Did you mean:")

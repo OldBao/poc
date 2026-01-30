@@ -1,5 +1,4 @@
-import json
-import openai
+from src.llm_client import LLMClient
 
 SQL_ANALYZER_PROMPT = """You are an expert SQL analyst. Given an ETL SQL query, extract all metrics defined in it.
 
@@ -32,26 +31,10 @@ Return ONLY a JSON array. No explanations."""
 
 class SQLAnalyzer:
     def __init__(self, model: str = "gpt-4o"):
-        self.model = model
-        self.client = openai.OpenAI()
-
-    def _call_llm(self, system_prompt: str, content: str) -> list[dict]:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            temperature=0,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": content},
-            ],
-        )
-        raw = response.choices[0].message.content.strip()
-        if raw.startswith("```"):
-            lines = raw.split("\n")
-            raw = "\n".join(lines[1:-1])
-        return json.loads(raw)
+        self.llm = LLMClient(model=model)
 
     def analyze_sql(self, sql: str) -> list[dict]:
-        return self._call_llm(SQL_ANALYZER_PROMPT, sql)
+        return self.llm.call_raw(SQL_ANALYZER_PROMPT, sql)
 
     def analyze_doc(self, doc_text: str) -> list[dict]:
-        return self._call_llm(DOC_ANALYZER_PROMPT, doc_text)
+        return self.llm.call_raw(DOC_ANALYZER_PROMPT, doc_text)
