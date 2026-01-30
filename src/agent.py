@@ -42,10 +42,42 @@ def main():
             continue
 
         if result.get("type") == "ambiguous":
+            candidates = result["candidates"]
             print("\nAmbiguous request. Did you mean:")
-            for i, candidate in enumerate(result["candidates"], 1):
+            for i, candidate in enumerate(candidates, 1):
                 print(f"  {i}. {candidate}")
-            print("Please rephrase with a specific metric.")
+            print("Select a number or rephrase your question.")
+
+            try:
+                selection = input("\nQ: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if selection.lower() in ("quit", "exit", "q"):
+                break
+            if selection.isdigit() and 1 <= int(selection) <= len(candidates):
+                chosen = candidates[int(selection) - 1]
+                try:
+                    result = agent.ask(chosen)
+                except Exception as e:
+                    print(f"\nError: {e}")
+                    continue
+                if result.get("type") == "sql":
+                    print(f"\n--- Generated SQL ---\n{result['sql']}")
+                else:
+                    print(f"\nResponse: {result}")
+            elif selection:
+                # Treat as a new question
+                try:
+                    result = agent.ask(selection)
+                except Exception as e:
+                    print(f"\nError: {e}")
+                    continue
+                if result.get("type") == "sql":
+                    print(f"\n--- Generated SQL ---\n{result['sql']}")
+                elif result.get("type") == "ambiguous":
+                    print("\nStill ambiguous. Please be more specific.")
+                else:
+                    print(f"\nResponse: {result}")
         elif result.get("type") == "sql":
             print(f"\n--- Generated SQL ---\n{result['sql']}")
         else:
