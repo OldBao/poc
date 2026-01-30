@@ -1,5 +1,4 @@
-"""Integration test: Rule Engine end-to-end with mocked LLM."""
-import os
+"""Integration test: Rules are included in system prompt."""
 import yaml
 import pytest
 from unittest.mock import MagicMock
@@ -68,17 +67,11 @@ def agent_with_rules(tmp_path):
     with open(rules_dir / "br_scs.yaml", "w") as f:
         yaml.dump(rule, f)
 
-    # Templates (empty, needed by Agent constructor)
-    templates_dir = tmp_path / "templates"
-    templates_dir.mkdir()
-
-    # Mock LLM
     mock_llm = MagicMock()
 
     agent = Agent(
         metrics_dir=str(metrics_dir),
         snippets_dir=str(snippets_dir),
-        templates_dir=str(templates_dir),
         rules_dir=str(rules_dir),
         value_index_path=str(tmp_path / "test.db"),
         llm_client=mock_llm,
@@ -86,63 +79,26 @@ def agent_with_rules(tmp_path):
     return agent, mock_llm
 
 
-def test_br_query_includes_scs_adjustment(agent_with_rules):
-    """When querying BR, the LLM prompt should include BR SCS Credit adjustment."""
-    agent, mock_llm = agent_with_rules
-
-    # Mock extractor to return BR + Nov 2025
-    mock_llm.call.side_effect = [
-        # First call: extractor
-        {
-            "intent": "query",
-            "metrics": ["Net Ads Rev"],
-            "dimensions": {
-                "market": "BR",
-                "date_range": {"start": "2025-11-01", "end": "2025-11-30"},
-            },
-            "clarification_needed": None,
-        },
-        # Second call: complex SQL generation
-        {"sql": "SELECT 1 FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live"},
-    ]
-
-    result = agent.ask("Net Ads Rev BR Nov 2025")
-
-    # Check the second LLM call (SQL generation) received the adjustment context
-    calls = mock_llm.call.call_args_list
-    assert len(calls) >= 2
-    sql_gen_call = calls[1]
-    # Get system_prompt from the call (could be positional or keyword)
-    system_prompt = sql_gen_call.kwargs.get("system_prompt", "")
-    if not system_prompt and sql_gen_call.args:
-        system_prompt = sql_gen_call.args[0]
-    # The prompt should mention BR SCS Credit
-    assert "BR SCS Credit" in system_prompt, f"Expected 'BR SCS Credit' in prompt, got: {system_prompt[:200]}"
+def test_system_prompt_includes_rule(agent_with_rules):
+    """The system prompt should contain the BR SCS Credit rule."""
+    agent, _ = agent_with_rules
+    system_prompt = agent.messages[0]["content"]
+    assert "BR SCS Credit" in system_prompt
+    assert "market = BR" in system_prompt
+    assert "revenue" in system_prompt
+    assert "left_join" in system_prompt
 
 
-def test_th_query_excludes_scs_adjustment(agent_with_rules):
-    """When querying TH, the LLM prompt should NOT include BR SCS Credit adjustment."""
-    agent, mock_llm = agent_with_rules
+def test_system_prompt_includes_adjustment_sql(agent_with_rules):
+    """The system prompt should contain the adjustment snippet SQL."""
+    agent, _ = agent_with_rules
+    system_prompt = agent.messages[0]["content"]
+    assert "br_scs" in system_prompt
+    assert "free_rev" in system_prompt
 
-    mock_llm.call.side_effect = [
-        {
-            "intent": "query",
-            "metrics": ["Net Ads Rev"],
-            "dimensions": {
-                "market": "TH",
-                "date_range": {"start": "2025-11-01", "end": "2025-11-30"},
-            },
-            "clarification_needed": None,
-        },
-        {"sql": "SELECT 1 FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live"},
-    ]
 
-    result = agent.ask("Net Ads Rev TH Nov 2025")
-
-    calls = mock_llm.call.call_args_list
-    assert len(calls) >= 2
-    sql_gen_call = calls[1]
-    system_prompt = sql_gen_call.kwargs.get("system_prompt", "")
-    if not system_prompt and sql_gen_call.args:
-        system_prompt = sql_gen_call.args[0]
-    assert "BR SCS Credit" not in system_prompt, f"Did not expect 'BR SCS Credit' in prompt for TH query"
+def test_system_prompt_includes_snippet(agent_with_rules):
+    """The system prompt should contain the base snippet SQL."""
+    agent, _ = agent_with_rules
+    system_prompt = agent.messages[0]["content"]
+    assert "net_ads_rev_usd" in system_prompt
