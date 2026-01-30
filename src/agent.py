@@ -35,6 +35,8 @@ def _is_quit(text):
 
 def _handle_result(agent, result):
     """Handle a result, prompting for follow-up if needed. Returns True to continue, False to quit."""
+    context_parts = []  # accumulate user-provided details across turns
+
     while True:
         rtype = result.get("type")
 
@@ -55,6 +57,7 @@ def _handle_result(agent, result):
                 return True
             if follow_up.isdigit() and 1 <= int(follow_up) <= len(candidates):
                 follow_up = candidates[int(follow_up) - 1]
+            context_parts.append(follow_up)
 
         elif rtype == "need_info":
             print(f"\n{result.get('message', 'Please provide more details.')}")
@@ -63,9 +66,11 @@ def _handle_result(agent, result):
                 return False
             if not follow_up:
                 return True
-            # Combine metric context with user's answer
+            context_parts.append(follow_up)
             metric = result.get("metric", "")
-            follow_up = f"{metric} — user provided: {follow_up}. Generate the SQL query."
+            # Build full query from accumulated context
+            all_context = " ".join(context_parts)
+            follow_up = f"Generate SQL for: {metric}. Details: {all_context}"
 
         else:
             print(f"\nUnexpected response: {result}")

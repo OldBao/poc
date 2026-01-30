@@ -35,7 +35,9 @@ RULES:
 - For monthly metrics, use: substr(cast(date_col as varchar), 1, 7) AS period, and avg() aggregation.
 - Always include required filters (e.g., tz_type).
 - If market is specified, add a grass_region = 'XX' filter.
+- If the user says "all markets" or "all", do NOT add a grass_region filter — query across all markets and include grass_region in the GROUP BY.
 - Date ranges use: BETWEEN date 'YYYY-MM-DD' AND date 'YYYY-MM-DD'
+- When the user says a month name like "Nov" or "November 2025", infer the full date range (e.g., 2025-11-01 to 2025-11-30). Do NOT ask for clarification on date ranges when a month is given.
 - For comparison queries (MoM, YoY), use a CTE with current_period and previous_period, and compute change_rate.
 - If the question is ambiguous (could refer to multiple metrics), return ambiguous candidates instead of guessing.
 - Return ONLY JSON. No explanations, no markdown outside JSON.
