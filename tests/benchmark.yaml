@@ -1,20 +1,528 @@
+##############################################################################
+# Benchmark cases for auto-testing loop
+# Categories: breadth (one per metric), depth (variations), edge cases
+##############################################################################
+
 cases:
+
+  # ==========================================================================
+  # BREADTH: One basic case per metric (12 metrics)
+  # ==========================================================================
+
+  # --- Simple metrics (5) ---
+
   - id: dau_id_monthly
     question: "ID market DAU in November 2025"
     expected_sql: |
-      SELECT grass_region, substr(cast(grass_date as varchar), 1, 7) AS period, avg(a1) AS dau
+      SELECT
+          substr(cast(grass_date as varchar), 1, 7) AS period
+          , grass_region AS market
+          , avg(a1) AS dau
       FROM traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live
       WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'
-        AND tz_type = 'local' AND grass_region = 'ID'
-      GROUP BY 1, 2 ORDER BY 2 DESC
-    tags: [traffic, dau]
+          AND tz_type = 'local'
+          AND grass_region = 'ID'
+      GROUP BY 1, 2
+      ORDER BY 1 DESC
+    tags: [traffic, dau, simple, breadth]
 
   - id: gmv_th_monthly
     question: "TH GMV in December 2025"
     expected_sql: |
-      SELECT grass_region, substr(cast(grass_date as varchar), 1, 7) AS period, sum(gmv) AS gmv
-      FROM commerce.shopee_commerce_dws_order_metrics_nd__reg_s0_live
+      SELECT
+          substr(cast(grass_date as varchar), 1, 7) AS period
+          , grass_region AS market
+          , avg(sum(distinct platform_gmv_excl_testorder)) AS gmv
+      FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
       WHERE grass_date BETWEEN date '2025-12-01' AND date '2025-12-31'
-        AND tz_type = 'local' AND grass_region = 'TH'
-      GROUP BY 1, 2 ORDER BY 2 DESC
-    tags: [commerce, gmv]
+          AND tz_type = 'regional'
+          AND grass_region = 'TH'
+      GROUP BY 1, 2
+      ORDER BY 1 DESC
+    tags: [commerce, gmv, simple, breadth]
+
+  - id: buyer_uv_vn_monthly
+    question: "VN buyer UV in October 2025"
+    expected_sql: |
+      SELECT
+          substr(cast(grass_date as varchar), 1, 7) AS period
+          , grass_region AS market
+          , avg(count(distinct case when gmv_usd * atc_prorate * first_touchpoint_item > 0 then user_id end)) AS buyer_uv
+      FROM traffic_omni_oa.dwd_order_item_atc_journey_di__reg_sensitive_live
+      WHERE grass_date BETWEEN date '2025-10-01' AND date '2025-10-31'
+          AND tz_type = 'local'
+          AND first_touchpoint_item = 1
+          AND user_id > 0
+          AND user_id is not null
+          AND order_item_id is not null
+          AND grass_region = 'VN'
+      GROUP BY 1, 2
+      ORDER BY 1 DESC
+    tags: [traffic, buyer, simple, breadth]
+
+  - id: commission_fee_sg_monthly
+    question: "SG commission fee in November 2025"
+    expected_sql: |
+      SELECT
+          substr(cast(cast(create_datetime as date) as varchar), 1, 7) AS period
+          , grass_region AS market
+          , avg(sum(commission_fee_usd)) AS commission_fee
+      FROM mp_order.dwd_order_item_all_ent_df__reg_s0_live
+      WHERE cast(create_datetime as date) BETWEEN date '2025-11-01' AND date '2025-11-30'
+          AND tz_type = 'local'
+          AND (grass_date >= cast(create_datetime as date) or grass_date = date '9999-01-01')
+          AND grass_region = 'SG'
+      GROUP BY 1, 2
+      ORDER BY 1 DESC
+    tags: [revenue, commission, simple, breadth]
+
+  - id: rebate_ph_monthly
+    question: "PH rebate in October 2025"
+    expected_sql: |
+      SELECT
+          substr(cast(cast(create_datetime as date) as varchar), 1, 7) AS period
+          , grass_region AS market
+          , avg(sum(sv_coin_earn_by_shopee_amt_usd) + sum(pv_coin_earn_by_shopee_amt_usd) + sum(actual_shipping_rebate_by_shopee_amt_usd) + sum(pv_rebate_by_shopee_amt_usd) + sum(sv_rebate_by_shopee_amt_usd) + sum(item_rebate_by_shopee_amt_usd) + sum(card_rebate_by_shopee_amt_usd)) AS rebate
+      FROM mp_order.dwd_order_item_all_ent_df__reg_s0_live
+      WHERE cast(create_datetime as date) BETWEEN date '2025-10-01' AND date '2025-10-31'
+          AND tz_type = 'local'
+          AND (grass_date >= cast(create_datetime as date) or grass_date = date '9999-01-01')
+          AND grass_region = 'PH'
+      GROUP BY 1, 2
+      ORDER BY 1 DESC
+    tags: [cost, rebate, simple, breadth]
+
+  # --- Complex metrics (4) ---
+
+  - id: ads_gross_rev_th_monthly
+    question: "Ads gross revenue for TH in October 2025"
+    expected_sql: |
+      SELECT
+          grass_region
+          , substr(cast(grass_date as varchar), 1, 7) AS period
+          , avg(ads_rev_usd) AS ads_gross_rev
+          , avg(ads_gmv_usd) AS ads_gmv
+      FROM
+          (
+              SELECT
+                  grass_region
+                  , grass_date
+                  , sum(ads_rev_usd) AS ads_rev_usd
+                  , sum(ads_gmv_usd) AS ads_gmv_usd
+              FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+              WHERE grass_date BETWEEN date '2025-10-01' AND date '2025-10-31'
+                  AND tz_type = 'regional'
+                  AND grass_region = 'TH'
+              GROUP BY 1, 2
+          ) n1
+      GROUP BY 1, 2
+      ORDER BY 2 DESC
+    tags: [ads, revenue, complex, breadth]
+
+  - id: net_ads_rev_vn_monthly
+    question: "Net ads revenue for VN in November 2025"
+    expected_sql: |
+      SELECT
+          n1.grass_region
+          , substr(cast(n1.grass_date as varchar), 1, 7) AS period
+          , avg(net_ads_rev) AS net_ads_rev
+          , avg(net_ads_rev_excl_1p) AS net_ads_rev_excl_1p
+      FROM
+          (
+              SELECT
+                  grass_region, grass_date
+                  , sum(net_ads_rev_usd) AS net_ads_rev
+                  , sum(CASE WHEN seller_type_1p NOT IN ('Local SCS', 'SCS', 'Lovito') THEN net_ads_rev_excl_sip_usd_1d END) AS net_ads_rev_excl_1p
+              FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+              WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'
+                  AND tz_type = 'regional'
+                  AND grass_region = 'VN'
+              GROUP BY 1, 2
+          ) n1
+      GROUP BY 1, 2
+      ORDER BY 2 DESC
+    tags: [ads, revenue, net, complex, breadth]
+
+  - id: ads_rev_by_channel_id_monthly
+    question: "Ads revenue percentage by channel for ID in November 2025"
+    expected_sql: |
+      SELECT
+          grass_region
+          , substr(cast(grass_date as varchar), 1, 7) AS period
+          , avg(ads_rev_usd) AS total_ads_rev
+          , avg(search_ads_rev_usd) AS search_ads_rev
+          , avg(dd_ads_rev_usd) AS dd_ads_rev
+          , avg(rcmd_ads_rev_usd) AS rcmd_ads_rev
+          , avg(game_ads_rev_usd) AS game_ads_rev
+          , avg(brand_ads_rev_usd) AS brand_ads_rev
+          , avg(live_ads_rev_usd) AS live_ads_rev
+          , avg(video_ads_rev_usd) AS video_ads_rev
+      FROM
+          (
+              SELECT
+                  grass_region, grass_date
+                  , sum(ads_rev_usd) AS ads_rev_usd
+                  , sum(CASE WHEN entry_point IN ('Global Search', 'Image Search') THEN ads_rev_usd END) AS search_ads_rev_usd
+                  , sum(CASE WHEN entry_point IN ('Daily Discover External', 'Daily Discover Mix Feed Internal', 'DD External Video') THEN ads_rev_usd END) AS dd_ads_rev_usd
+                  , sum(CASE WHEN entry_point IN ('Cart Recommendation', 'Me You May Also Like', 'My Purchase Page Recommendation', 'Order Detail Page Recommendation', 'Order Successful Recommendation', 'You May Also Like') THEN ads_rev_usd END) AS rcmd_ads_rev_usd
+                  , sum(CASE WHEN entry_point = 'Game' THEN ads_rev_usd END) AS game_ads_rev_usd
+                  , sum(CASE WHEN entry_point IN ('Shop', 'Shop Game', 'Display') THEN ads_rev_usd END) AS brand_ads_rev_usd
+                  , sum(CASE WHEN entry_point IN ('Livestream Autolanding', 'Livestream PDP', 'Livestream Discovery', 'Livestream Homepage', 'Livestream Video Feed', 'Livestream For You') THEN ads_rev_usd END) AS live_ads_rev_usd
+                  , sum(CASE WHEN entry_point IN ('Video Trending Tab', 'HP Internal Video', 'DD Internal Video') THEN ads_rev_usd END) AS video_ads_rev_usd
+              FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+              WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'
+                  AND tz_type = 'regional'
+                  AND grass_region = 'ID'
+              GROUP BY 1, 2
+          ) n
+      GROUP BY 1, 2
+      ORDER BY 2 DESC
+    tags: [ads, channel, complex, breadth]
+
+  - id: order_by_channel_br_monthly
+    question: "Order percentage by channel for BR in Nov 2025"
+    expected_sql: |
+      SELECT
+          grass_region
+          , substr(cast(grass_date as varchar), 1, 7) AS period
+          , avg(CASE WHEN feature = 'Platform' THEN order_cnt_login_user_first_lead END) AS platform_order_1d
+          , avg(CASE WHEN feature = 'Global Search' THEN order_cnt_login_user_first_lead END) AS global_search_order_1d
+          , avg(CASE WHEN feature = 'Daily Discover' THEN order_cnt_login_user_first_lead END) AS dd_order_1d
+          , avg(CASE WHEN feature = 'You May Also Like' THEN order_cnt_login_user_first_lead END) AS ymal_order_1d
+          , avg(CASE WHEN feature = 'post purchase' THEN order_cnt_login_user_first_lead END) AS post_purchase_order_1d
+          , avg(CASE WHEN feature = 'Private Domain Features' THEN order_cnt_login_user_first_lead END) AS private_domain_order_1d
+          , avg(CASE WHEN feature = 'Live Streaming' THEN order_cnt_login_user_first_lead END) AS live_order_1d
+          , avg(CASE WHEN feature = 'Video' THEN order_cnt_login_user_first_lead END) AS video_order_1d
+      FROM dev_video_bi.sr_okr_table_metric_dws
+      WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'
+          AND tz_type = 'regional'
+          AND grass_region = 'BR'
+      GROUP BY 1, 2
+      ORDER BY 2 DESC
+    tags: [commerce, channel, complex, breadth]
+
+  # --- Derived metrics (3) ---
+
+  - id: take_rate_id_monthly
+    question: "ID gross take rate in November 2025"
+    expected_sql: |
+      WITH ads_gross_rev_cte AS (
+          SELECT
+              substr(cast(grass_date as varchar), 1, 7) AS period
+              , grass_region AS market
+              , avg(sum(ads_rev_usd)) AS ads_gross_rev
+          FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+          WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'
+              AND tz_type = 'regional'
+              AND grass_region = 'ID'
+          GROUP BY 1, 2
+      ),
+      gmv_cte AS (
+          SELECT
+              substr(cast(grass_date as varchar), 1, 7) AS period
+              , grass_region AS market
+              , avg(sum(distinct platform_gmv_excl_testorder)) AS gmv
+          FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+          WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'
+              AND tz_type = 'regional'
+              AND grass_region = 'ID'
+          GROUP BY 1, 2
+      )
+      SELECT
+          a.period
+          , a.market
+          , a.ads_gross_rev
+          , b.gmv
+          , a.ads_gross_rev / NULLIF(b.gmv, 0) AS gross_take_rate
+      FROM ads_gross_rev_cte a
+      JOIN gmv_cte b ON a.period = b.period AND a.market = b.market
+    tags: [ads, efficiency, derived, breadth]
+
+  - id: net_take_rate_th_monthly
+    question: "TH net take rate in October 2025"
+    expected_sql: |
+      WITH net_ads_rev_cte AS (
+          SELECT
+              substr(cast(grass_date as varchar), 1, 7) AS period
+              , grass_region AS market
+              , avg(sum(net_ads_rev_usd)) AS net_ads_rev
+          FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+          WHERE grass_date BETWEEN date '2025-10-01' AND date '2025-10-31'
+              AND tz_type = 'regional'
+              AND grass_region = 'TH'
+          GROUP BY 1, 2
+      ),
+      gmv_cte AS (
+          SELECT
+              substr(cast(grass_date as varchar), 1, 7) AS period
+              , grass_region AS market
+              , avg(sum(distinct platform_gmv_excl_testorder)) AS gmv
+          FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+          WHERE grass_date BETWEEN date '2025-10-01' AND date '2025-10-31'
+              AND tz_type = 'regional'
+              AND grass_region = 'TH'
+          GROUP BY 1, 2
+      )
+      SELECT
+          a.period
+          , a.market
+          , a.net_ads_rev
+          , b.gmv
+          , a.net_ads_rev / NULLIF(b.gmv, 0) AS net_take_rate
+      FROM net_ads_rev_cte a
+      JOIN gmv_cte b ON a.period = b.period AND a.market = b.market
+    tags: [ads, efficiency, net, derived, breadth]
+
+  - id: ads_roi_id_monthly
+    question: "ID ads direct ROI in November 2025"
+    expected_sql: |
+      WITH ads_gross_rev_cte AS (
+          SELECT
+              substr(cast(grass_date as varchar), 1, 7) AS period
+              , grass_region AS market
+              , avg(sum(ads_gmv_usd)) AS ads_gmv
+          FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+          WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'
+              AND tz_type = 'regional'
+              AND grass_region = 'ID'
+          GROUP BY 1, 2
+      ),
+      ads_gross_rev_cte_2 AS (
+          SELECT
+              substr(cast(grass_date as varchar), 1, 7) AS period
+              , grass_region AS market
+              , avg(sum(ads_rev_usd)) AS ads_gross_rev
+          FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+          WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'
+              AND tz_type = 'regional'
+              AND grass_region = 'ID'
+          GROUP BY 1, 2
+      )
+      SELECT
+          a.period
+          , a.market
+          , a.ads_gmv
+          , b.ads_gross_rev
+          , a.ads_gmv / NULLIF(b.ads_gross_rev, 0) AS ads_direct_roi
+      FROM ads_gross_rev_cte a
+      JOIN ads_gross_rev_cte_2 b ON a.period = b.period AND a.market = b.market
+    tags: [ads, efficiency, derived, breadth]
+
+  # ==========================================================================
+  # DEPTH: Variations on key metrics
+  # ==========================================================================
+
+  # --- All-markets query (no region filter) ---
+
+  - id: dau_all_markets_monthly
+    question: "DAU across all markets in November 2025"
+    expected_sql: |
+      SELECT
+          substr(cast(grass_date as varchar), 1, 7) AS period
+          , grass_region AS market
+          , avg(a1) AS dau
+      FROM traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live
+      WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'
+          AND tz_type = 'local'
+      GROUP BY 1, 2
+      ORDER BY 1 DESC
+    tags: [traffic, dau, all-markets, depth]
+
+  - id: gmv_all_markets_monthly
+    question: "All market GMV in October 2025"
+    expected_sql: |
+      SELECT
+          substr(cast(grass_date as varchar), 1, 7) AS period
+          , grass_region AS market
+          , avg(sum(distinct platform_gmv_excl_testorder)) AS gmv
+      FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+      WHERE grass_date BETWEEN date '2025-10-01' AND date '2025-10-31'
+          AND tz_type = 'regional'
+      GROUP BY 1, 2
+      ORDER BY 1 DESC
+    tags: [commerce, gmv, all-markets, depth]
+
+  # --- Different markets ---
+
+  - id: dau_br_monthly
+    question: "BR DAU in December 2025"
+    expected_sql: |
+      SELECT
+          substr(cast(grass_date as varchar), 1, 7) AS period
+          , grass_region AS market
+          , avg(a1) AS dau
+      FROM traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live
+      WHERE grass_date BETWEEN date '2025-12-01' AND date '2025-12-31'
+          AND tz_type = 'local'
+          AND grass_region = 'BR'
+      GROUP BY 1, 2
+      ORDER BY 1 DESC
+    tags: [traffic, dau, depth]
+
+  - id: ads_gross_rev_mx_monthly
+    question: "MX ads gross revenue in November 2025"
+    expected_sql: |
+      SELECT
+          grass_region
+          , substr(cast(grass_date as varchar), 1, 7) AS period
+          , avg(ads_rev_usd) AS ads_gross_rev
+          , avg(ads_gmv_usd) AS ads_gmv
+      FROM
+          (
+              SELECT
+                  grass_region
+                  , grass_date
+                  , sum(ads_rev_usd) AS ads_rev_usd
+                  , sum(ads_gmv_usd) AS ads_gmv_usd
+              FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+              WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'
+                  AND tz_type = 'regional'
+                  AND grass_region = 'MX'
+              GROUP BY 1, 2
+          ) n1
+      GROUP BY 1, 2
+      ORDER BY 2 DESC
+    tags: [ads, revenue, complex, depth]
+
+  # --- MoM comparison ---
+
+  - id: dau_id_mom_compare
+    question: "Compare ID DAU between October and November 2025"
+    expected_sql: |
+      WITH current_period AS (
+          SELECT
+              substr(cast(grass_date as varchar), 1, 7) AS period
+              , grass_region AS market
+              , avg(a1) AS dau
+          FROM traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live
+          WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'
+              AND tz_type = 'local'
+              AND grass_region = 'ID'
+          GROUP BY 1, 2
+      ),
+      previous_period AS (
+          SELECT
+              substr(cast(grass_date as varchar), 1, 7) AS period
+              , grass_region AS market
+              , avg(a1) AS dau
+          FROM traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live
+          WHERE grass_date BETWEEN date '2025-10-01' AND date '2025-10-31'
+              AND tz_type = 'local'
+              AND grass_region = 'ID'
+          GROUP BY 1, 2
+      )
+      SELECT
+          c.period AS current_period
+          , p.period AS previous_period
+          , c.market
+          , c.dau AS current_value
+          , p.dau AS previous_value
+          , (c.dau - p.dau) / NULLIF(p.dau, 0) AS change_rate
+      FROM current_period c
+      LEFT JOIN previous_period p ON c.market = p.market
+    tags: [traffic, dau, compare, depth]
+
+  - id: gmv_th_mom_compare
+    question: "TH GMV MoM comparison November vs October 2025"
+    expected_sql: |
+      WITH current_period AS (
+          SELECT
+              substr(cast(grass_date as varchar), 1, 7) AS period
+              , grass_region AS market
+              , avg(sum(distinct platform_gmv_excl_testorder)) AS gmv
+          FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+          WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'
+              AND tz_type = 'regional'
+              AND grass_region = 'TH'
+          GROUP BY 1, 2
+      ),
+      previous_period AS (
+          SELECT
+              substr(cast(grass_date as varchar), 1, 7) AS period
+              , grass_region AS market
+              , avg(sum(distinct platform_gmv_excl_testorder)) AS gmv
+          FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+          WHERE grass_date BETWEEN date '2025-10-01' AND date '2025-10-31'
+              AND tz_type = 'regional'
+              AND grass_region = 'TH'
+          GROUP BY 1, 2
+      )
+      SELECT
+          c.period AS current_period
+          , p.period AS previous_period
+          , c.market
+          , c.gmv AS current_value
+          , p.gmv AS previous_value
+          , (c.gmv - p.gmv) / NULLIF(p.gmv, 0) AS change_rate
+      FROM current_period c
+      LEFT JOIN previous_period p ON c.market = p.market
+    tags: [commerce, gmv, compare, depth]
+
+  # --- Alias usage ---
+
+  - id: dau_alias_chinese
+    question: "ID 日活 in November 2025"
+    expected_sql: |
+      SELECT
+          substr(cast(grass_date as varchar), 1, 7) AS period
+          , grass_region AS market
+          , avg(a1) AS dau
+      FROM traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live
+      WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'
+          AND tz_type = 'local'
+          AND grass_region = 'ID'
+      GROUP BY 1, 2
+      ORDER BY 1 DESC
+    tags: [traffic, dau, alias, depth]
+
+  - id: gmv_alias_chinese
+    question: "TH 交易额 in December 2025"
+    expected_sql: |
+      SELECT
+          substr(cast(grass_date as varchar), 1, 7) AS period
+          , grass_region AS market
+          , avg(sum(distinct platform_gmv_excl_testorder)) AS gmv
+      FROM mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+      WHERE grass_date BETWEEN date '2025-12-01' AND date '2025-12-31'
+          AND tz_type = 'regional'
+          AND grass_region = 'TH'
+      GROUP BY 1, 2
+      ORDER BY 1 DESC
+    tags: [commerce, gmv, alias, depth]
+
+  # ==========================================================================
+  # EDGE CASES
+  # ==========================================================================
+
+  # --- Ambiguous queries (agent should return clarification, not SQL) ---
+
+  - id: edge_ambiguous_revenue
+    question: "What's the revenue?"
+    expected_sql: ""
+    tags: [edge, ambiguous]
+
+  - id: edge_ambiguous_take_rate
+    question: "What's the take rate for ID?"
+    expected_sql: ""
+    tags: [edge, ambiguous]
+
+  # --- Unknown metric ---
+
+  - id: edge_unknown_metric
+    question: "What is the churn rate for ID in November 2025?"
+    expected_sql: ""
+    tags: [edge, unknown]
+
+  # --- Missing market (agent should ask for clarification) ---
+
+  - id: edge_missing_market
+    question: "DAU in November 2025"
+    expected_sql: ""
+    tags: [edge, incomplete]
+
+  # --- Missing date range (agent should ask for clarification) ---
+
+  - id: edge_missing_date
+    question: "ID market DAU"
+    expected_sql: ""
+    tags: [edge, incomplete]
