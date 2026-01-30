@@ -1,4 +1,5 @@
 import pytest
+import yaml
 from unittest.mock import MagicMock
 from src.agent import Agent
 
@@ -84,3 +85,46 @@ def test_invalid_market_returns_error(mock_llm, tmp_path):
     result = agent.ask("XX market DAU in November 2025")
     assert result["type"] == "error"
     assert "XX" in result["message"]
+
+
+def test_agent_has_rule_engine(tmp_path):
+    """Agent should have a rule_engine attribute when rules_dir is provided."""
+    metrics_dir = tmp_path / "metrics"
+    metrics_dir.mkdir()
+    # Create a minimal metric
+    metric = {
+        "metric": {
+            "name": "Test",
+            "aliases": ["test"],
+            "type": "simple",
+            "tags": ["volume"],
+            "dimensions": {"required": ["market", "date_range"], "optional": []},
+            "sources": [{
+                "id": "s1",
+                "layer": "reg",
+                "table": "schema.test_table",
+                "columns": {"value": "val_col"},
+                "filters": ["tz_type = 'regional'"],
+            }],
+            "aggregation": "avg",
+        }
+    }
+    with open(metrics_dir / "test.yaml", "w") as f:
+        yaml.dump(metric, f)
+
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    templates_dir = tmp_path / "templates"
+    templates_dir.mkdir()
+
+    mock_llm = MagicMock()
+    agent = Agent(
+        metrics_dir=str(metrics_dir),
+        snippets_dir="snippets",
+        templates_dir=str(templates_dir),
+        rules_dir=str(rules_dir),
+        value_index_path=str(tmp_path / "test.db"),
+        llm_client=mock_llm,
+    )
+    assert hasattr(agent, "rule_engine")
+    assert agent.rule_engine.rules == []  # No rules in empty dir
