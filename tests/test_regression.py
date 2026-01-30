@@ -1,7 +1,10 @@
+"""
+Regression test suite for LLM-based SQL generation.
+Runs against live OpenAI API. Mark with pytest -m live.
+"""
 import os
-import yaml
 import pytest
-from unittest.mock import patch
+import yaml
 from src.agent import Agent
 
 TESTS_DIR = os.path.dirname(__file__)
@@ -13,22 +16,42 @@ def load_test_cases():
         return yaml.safe_load(f)
 
 
-TEST_CASES = load_test_cases()
+test_cases = load_test_cases()
 
 
+@pytest.mark.live
 @pytest.mark.parametrize(
     "case",
-    TEST_CASES,
-    ids=[c["question"][:50] for c in TEST_CASES],
+    test_cases,
+    ids=[c["question"][:50] for c in test_cases],
 )
 def test_regression(case):
-    agent = Agent(metrics_dir="metrics", templates_dir="templates", snippets_dir="snippets")
+    agent = Agent(metrics_dir="metrics", snippets_dir="snippets")
+    result = agent.ask(case["question"])
 
-    with patch("src.extractor.IntentExtractor.extract") as mock_extract:
-        mock_extract.return_value = case["mock_extract"]
-        result = agent.ask(case["question"])
+    expected_type = case["expected_type"]
+    assert result.get("type") == expected_type, (
+        f"Expected type '{expected_type}', got '{result.get('type')}'. "
+        f"Full response: {result}"
+    )
 
-    assert "sql" in result, f"Expected SQL output, got: {result}"
-    sql = result["sql"]
-    for fragment in case["expected_sql_contains"]:
-        assert fragment in sql, f"Missing '{fragment}' in SQL:\n{sql}"
+    if expected_type == "sql":
+        sql = result["sql"]
+        for fragment in case.get("expected_sql_contains", []):
+            assert fragment in sql, (
+                f"Expected SQL to contain '{fragment}'.\n"
+                f"Got SQL:\n{sql}"
+            )
+        for fragment in case.get("expected_sql_not_contains", []):
+            assert fragment not in sql, (
+                f"Expected SQL to NOT contain '{fragment}'.\n"
+                f"Got SQL:\n{sql}"
+            )
+
+    elif expected_type == "ambiguous":
+        candidates = " ".join(result.get("candidates", []))
+        for keyword in case.get("expected_candidates_contain", []):
+            assert keyword.lower() in candidates.lower(), (
+                f"Expected candidates to mention '{keyword}'.\n"
+                f"Got: {result.get('candidates')}"
+            )
