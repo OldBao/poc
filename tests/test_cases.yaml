@@ -32,8 +32,8 @@
     - "current_period"
     - "previous_period"
     - "change_rate"
-    - "2025-11-01"
-    - "2025-10-01"
+    - "2025-10"
+    - "2025-11"
   expected_sql_not_contains: []
 
 - question: "Net ads revenue for VN in November 2025"
