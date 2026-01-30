@@ -4,9 +4,12 @@ import openai
 
 
 class LLMClient:
-    def __init__(self, model: str = "gpt-4o"):
+    def __init__(self, model: str = "gpt-4o", base_url: str | None = None):
         self.model = model
-        self.client = openai.OpenAI()
+        self.client = openai.OpenAI(
+            base_url=base_url,
+            api_key=openai.api_key or "ollama",  # ollama doesn't need a real key
+        ) if base_url else openai.OpenAI()
 
     def call(self, system_prompt: str, user_message: str) -> dict:
         response = self.client.chat.completions.create(
