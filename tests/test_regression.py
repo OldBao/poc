@@ -5,7 +5,7 @@ Runs against live OpenAI API. Mark with pytest -m live.
 import os
 import pytest
 import yaml
-from src.agent import Agent
+from src.agent import Agent, parse_response
 
 TESTS_DIR = os.path.dirname(__file__)
 
@@ -27,7 +27,9 @@ test_cases = load_test_cases()
 )
 def test_regression(case):
     agent = Agent(metrics_dir="metrics", snippets_dir="snippets")
-    result = agent.ask(case["question"])
+    raw = agent.start(case["question"])
+    rtype, data = parse_response(raw)
+    result = data if isinstance(data, dict) else {"type": "text", "message": data}
 
     expected_type = case["expected_type"]
     assert result.get("type") == expected_type, (
