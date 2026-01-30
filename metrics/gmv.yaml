@@ -1,0 +1,21 @@
+metric:
+  name: GMV
+  aliases: ["gross merchandise value", "交易额", "gmv"]
+  type: simple
+  aggregation: avg
+  unit: usd
+  sources:
+    - id: gmv_from_ads
+      layer: dws
+      table: mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+      columns:
+        value: "sum(distinct platform_gmv_excl_testorder)"
+        date: grass_date
+        region: grass_region
+      filters:
+        - "tz_type = 'regional'"
+      use_when:
+        granularity: [platform]
+  dimensions:
+    required: [market, date_range]
+    optional: []

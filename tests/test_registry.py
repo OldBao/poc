@@ -48,3 +48,16 @@ def test_list_metric_names():
     registry.load()
     names = registry.list_names_and_aliases()
     assert any("DAU" in entry for entry in names)
+
+
+def test_load_all_sra_metrics():
+    registry = MetricRegistry(METRICS_DIR)
+    registry.load()
+    expected_names = [
+        "DAU", "Buyer UV", "GMV", "Ads Gross Rev", "Gross Take Rate",
+        "Ads Direct ROI", "Net Ads Rev", "Net Take Rate",
+        "Commission Fee", "Rebate", "Order Pct by Channel", "Ads Rev Pct by Channel",
+    ]
+    loaded_names = [m.name for m in registry.metrics]
+    for name in expected_names:
+        assert name in loaded_names, f"Missing metric: {name}"

@@ -1,0 +1,19 @@
+metric:
+  name: Ads Rev Pct by Channel
+  aliases: ["ads revenue ratio by channel", "广告收入占比按渠道", "ads rev% by channel",
+            "search ads ratio", "DD ads ratio"]
+  type: complex
+  snippet_file: snippets/ads_rev_by_channel.sql
+  sub_metrics:
+    - search_ads_rev_ratio
+    - dd_ads_rev_ratio
+    - rcmd_ads_rev_ratio
+    - game_ads_rev_ratio
+    - brand_ads_rev_ratio
+    - live_ads_rev_ratio
+    - video_ads_rev_ratio
+    - undefined_rev_ratio
+  unit: ratio
+  dimensions:
+    required: [market, date_range]
+    optional: []

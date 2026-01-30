@@ -1,0 +1,12 @@
+metric:
+  name: Ads Gross Rev
+  aliases: ["ads revenue", "广告收入", "ads gross rev", "ads rev"]
+  type: complex
+  snippet_file: snippets/ads_gross_rev.sql
+  unit: usd
+  dimensions:
+    required: [market, date_range]
+    optional: []
+  notes: |
+    New data from mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live.
+    Entry points differ between old and new tables.

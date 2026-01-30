@@ -23,6 +23,8 @@ class MetricDefinition:
     unit: Optional[str] = None
     snippet_file: Optional[str] = None
     sub_metrics: list[str] = field(default_factory=list)
+    formula: Optional[str] = None
+    depends_on: list[str] = field(default_factory=list)
     owner: Optional[str] = None
     notes: Optional[str] = None
 
@@ -40,6 +42,8 @@ class MetricDefinition:
             unit=m.get("unit"),
             snippet_file=m.get("snippet_file"),
             sub_metrics=m.get("sub_metrics", []),
+            formula=m.get("formula"),
+            depends_on=m.get("depends_on", []),
             owner=m.get("owner"),
             notes=m.get("notes"),
         )

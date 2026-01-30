@@ -1,0 +1,22 @@
+metric:
+  name: Commission Fee
+  aliases: ["commission", "佣金", "commission fee"]
+  type: simple
+  aggregation: avg
+  unit: usd
+  sources:
+    - id: commission
+      layer: dwd
+      table: mp_order.dwd_order_item_all_ent_df__reg_s0_live
+      columns:
+        value: "sum(commission_fee_usd)"
+        date: "cast(create_datetime as date)"
+        region: grass_region
+      filters:
+        - "tz_type = 'local'"
+        - "(grass_date >= cast(create_datetime as date) or grass_date = date '9999-01-01')"
+      use_when:
+        granularity: [platform]
+  dimensions:
+    required: [market, date_range]
+    optional: []

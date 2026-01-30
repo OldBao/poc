@@ -1,0 +1,22 @@
+metric:
+  name: Rebate
+  aliases: ["total rebate", "返利", "rebate"]
+  type: simple
+  aggregation: avg
+  unit: usd
+  sources:
+    - id: rebate
+      layer: dwd
+      table: mp_order.dwd_order_item_all_ent_df__reg_s0_live
+      columns:
+        value: "sum(sv_coin_earn_by_shopee_amt_usd) + sum(pv_coin_earn_by_shopee_amt_usd) + sum(actual_shipping_rebate_by_shopee_amt_usd) + sum(pv_rebate_by_shopee_amt_usd) + sum(sv_rebate_by_shopee_amt_usd) + sum(item_rebate_by_shopee_amt_usd) + sum(card_rebate_by_shopee_amt_usd)"
+        date: "cast(create_datetime as date)"
+        region: grass_region
+      filters:
+        - "tz_type = 'local'"
+        - "(grass_date >= cast(create_datetime as date) or grass_date = date '9999-01-01')"
+      use_when:
+        granularity: [platform]
+  dimensions:
+    required: [market, date_range]
+    optional: []

@@ -1,0 +1,12 @@
+metric:
+  name: Net Ads Rev
+  aliases: ["net ads revenue", "净广告收入", "net ads rev"]
+  type: complex
+  snippet_file: snippets/net_ads_rev.sql
+  unit: usd
+  dimensions:
+    required: [market, date_range]
+    optional: []
+  notes: |
+    BR market has special SCS credit adjustment (2025_0034_BR_AD_SAS_CREDITS).
+    Uses net_ads_rev_usd from mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live.

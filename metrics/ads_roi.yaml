@@ -1,0 +1,10 @@
+metric:
+  name: Ads Direct ROI
+  aliases: ["ads roi", "广告ROI", "ads direct roi"]
+  type: derived
+  formula: "ads_gmv / ads_gross_rev"
+  depends_on: ["Ads Gross Rev"]
+  unit: ratio
+  dimensions:
+    required: [market, date_range]
+    optional: []

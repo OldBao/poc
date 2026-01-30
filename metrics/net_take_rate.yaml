@@ -1,0 +1,10 @@
+metric:
+  name: Net Take Rate
+  aliases: ["net take rate", "净货币化率"]
+  type: derived
+  formula: "net_ads_rev / gmv"
+  depends_on: ["Net Ads Rev", "GMV"]
+  unit: ratio
+  dimensions:
+    required: [market, date_range]
+    optional: []

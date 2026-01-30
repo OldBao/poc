@@ -1,0 +1,10 @@
+metric:
+  name: Gross Take Rate
+  aliases: ["take rate", "货币化率", "gross take rate"]
+  type: derived
+  formula: "ads_gross_rev / gmv"
+  depends_on: ["Ads Gross Rev", "GMV"]
+  unit: ratio
+  dimensions:
+    required: [market, date_range]
+    optional: []

@@ -1,0 +1,22 @@
+metric:
+  name: Order Pct by Channel
+  aliases: ["order ratio by channel", "订单占比按渠道", "order% by channel",
+            "search order ratio", "DD order ratio", "YMAL order ratio"]
+  type: complex
+  snippet_file: snippets/order_by_channel.sql
+  sub_metrics:
+    - global_search_order_ratio
+    - dd_order_ratio
+    - ymal_order_ratio
+    - post_purchase_order_ratio
+    - private_domain_order_ratio
+    - live_order_ratio
+    - video_order_ratio
+    - other_order_ratio
+  unit: ratio
+  dimensions:
+    required: [market, date_range]
+    optional: []
+  notes: |
+    Source: dev_video_bi.sr_okr_table_metric_dws
+    Jan-Apr 2023 uses temp_video_ls_202301_202304 for live/video orders.
