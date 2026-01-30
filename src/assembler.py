@@ -53,3 +53,22 @@ class SQLAssembler:
 
     def _assemble_derived(self, metric, market, date_start, date_end):
         return f"-- Derived metric: {metric.name}\n-- Formula: {metric.formula}\n-- Resolve depends_on metrics first, then compute ratio"
+
+    def assemble_compare(
+        self,
+        metric: MetricDefinition,
+        market: str | None,
+        current_start: str, current_end: str,
+        previous_start: str, previous_end: str,
+        granularity: str = "platform",
+    ) -> str:
+        base_query = self.assemble(metric, market, current_start, current_end, granularity)
+        base_query_prev = self.assemble(metric, market, previous_start, previous_end, granularity)
+        metric_col = metric.name.lower().replace(" ", "_")
+        template = self.env.get_template("compare.sql.j2")
+        return template.render(
+            base_query=base_query,
+            base_query_prev=base_query_prev,
+            metric_col=metric_col,
+            has_market=market is not None,
+        )

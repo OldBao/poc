@@ -75,3 +75,17 @@ def test_complex_metric_order_by_channel(assembler):
     assert "grass_region = 'TH'" in sql
     assert "Global Search" in sql
     assert "Daily Discover" in sql
+
+
+def test_compare_sql(assembler, dau_metric):
+    sql = assembler.assemble_compare(
+        metric=dau_metric,
+        market="ID",
+        current_start="2025-11-01", current_end="2025-11-30",
+        previous_start="2025-10-01", previous_end="2025-10-31",
+    )
+    assert "current_period" in sql
+    assert "previous_period" in sql
+    assert "change_rate" in sql
+    assert "2025-11-01" in sql
+    assert "2025-10-01" in sql
