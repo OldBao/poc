@@ -1,0 +1,78 @@
+- question: "ID market DAU in November 2025"
+  mock_extract:
+    intent: query
+    metrics: ["DAU"]
+    dimensions:
+      market: ID
+      date_range: {start: "2025-11-01", end: "2025-11-30"}
+      compare_to: null
+      module: null
+    clarification_needed: null
+  expected_sql_contains:
+    - "traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live"
+    - "grass_region = 'ID'"
+    - "2025-11-01"
+    - "avg("
+
+- question: "Ads gross revenue for TH in October 2025"
+  mock_extract:
+    intent: query
+    metrics: ["Ads Gross Rev"]
+    dimensions:
+      market: TH
+      date_range: {start: "2025-10-01", end: "2025-10-31"}
+      compare_to: null
+      module: null
+    clarification_needed: null
+  expected_sql_contains:
+    - "mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live"
+    - "grass_region = 'TH'"
+    - "2025-10-01"
+
+- question: "Order percentage by channel for BR in Nov 2025"
+  mock_extract:
+    intent: query
+    metrics: ["Order Pct by Channel"]
+    dimensions:
+      market: BR
+      date_range: {start: "2025-11-01", end: "2025-11-30"}
+      compare_to: null
+      module: null
+    clarification_needed: null
+  expected_sql_contains:
+    - "sr_okr_table_metric_dws"
+    - "grass_region = 'BR'"
+    - "Global Search"
+    - "Daily Discover"
+    - "Live Streaming"
+
+- question: "Compare ID DAU between October and November 2025"
+  mock_extract:
+    intent: compare
+    metrics: ["DAU"]
+    dimensions:
+      market: ID
+      date_range: {start: "2025-11-01", end: "2025-11-30"}
+      compare_to: {type: MoM, start: "2025-10-01", end: "2025-10-31"}
+      module: null
+    clarification_needed: null
+  expected_sql_contains:
+    - "current_period"
+    - "previous_period"
+    - "change_rate"
+    - "2025-11-01"
+    - "2025-10-01"
+
+- question: "Net ads revenue for VN in November 2025"
+  mock_extract:
+    intent: query
+    metrics: ["Net Ads Rev"]
+    dimensions:
+      market: VN
+      date_range: {start: "2025-11-01", end: "2025-11-30"}
+      compare_to: null
+      module: null
+    clarification_needed: null
+  expected_sql_contains:
+    - "net_ads_rev_usd"
+    - "grass_region = 'VN'"
