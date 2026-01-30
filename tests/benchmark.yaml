@@ -1,0 +1,20 @@
+cases:
+  - id: dau_id_monthly
+    question: "ID market DAU in November 2025"
+    expected_sql: |
+      SELECT grass_region, substr(cast(grass_date as varchar), 1, 7) AS period, avg(a1) AS dau
+      FROM traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live
+      WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30'
+        AND tz_type = 'local' AND grass_region = 'ID'
+      GROUP BY 1, 2 ORDER BY 2 DESC
+    tags: [traffic, dau]
+
+  - id: gmv_th_monthly
+    question: "TH GMV in December 2025"
+    expected_sql: |
+      SELECT grass_region, substr(cast(grass_date as varchar), 1, 7) AS period, sum(gmv) AS gmv
+      FROM commerce.shopee_commerce_dws_order_metrics_nd__reg_s0_live
+      WHERE grass_date BETWEEN date '2025-12-01' AND date '2025-12-31'
+        AND tz_type = 'local' AND grass_region = 'TH'
+      GROUP BY 1, 2 ORDER BY 2 DESC
+    tags: [commerce, gmv]
