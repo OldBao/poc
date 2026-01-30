@@ -1,5 +1,4 @@
 # src/agent.py
-import sys
 from src.prompt_builder import PromptBuilder
 from src.llm_client import LLMClient
 

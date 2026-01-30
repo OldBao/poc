@@ -1,5 +1,4 @@
 import argparse
-import sys
 from src.importer.analyzer import SQLAnalyzer
 from src.importer.generator import Generator
 
