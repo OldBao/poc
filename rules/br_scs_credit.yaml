@@ -1,0 +1,14 @@
+rule:
+  name: BR SCS Credit Adjustment
+  description: |
+    Adjusts net revenue for BR market by adding SCS credit program revenue.
+    Only applies to BR market, where the 2025_0034_BR_AD_SAS_CREDITS program
+    provides free credit that must be added back to net_ads_rev_excl_1p.
+  when:
+    market: BR
+    metric_tags: [revenue, net]
+  effect:
+    type: left_join
+    snippet_file: snippets/adjustments/br_scs_credit.sql
+    join_keys: [grass_date, grass_region]
+  valid_from: 2025-01-01
