@@ -1,6 +1,8 @@
 import os
 import yaml
 
+from src.models import AssemblyContext
+
 OUTPUT_FORMAT = """
 You must respond in one of these ways:
 
@@ -136,6 +138,40 @@ class PromptBuilder:
             snippet_sql=snippet_sql,
             dimension_values_section=dim_section,
         )
+
+    def build_assembled_prompt(self, context: AssemblyContext, metric_name: str) -> str:
+        sections = []
+        sections.append('You are an expert SQL generator for S&R&A metrics at Shopee.')
+        sections.append(
+            f'Assemble the final SQL for metric "{metric_name}" using the base query and adjustments below.'
+        )
+        sections.append('Return ONLY the complete SQL query, no explanations, no markdown fences.')
+
+        sections.append(f"## Base Query\n```sql\n{context.base_snippet}\n```")
+
+        adjustments = []
+        for i, join in enumerate(context.joins, 1):
+            adjustments.append(
+                f"{i}. {join.name} (LEFT JOIN on {', '.join(join.join_keys)})\n"
+                f"```sql\n{join.snippet}\n```"
+            )
+
+        for filt in context.filters:
+            adjustments.append(f"- Additional filter: `{filt}`")
+
+        for col in context.columns:
+            adjustments.append(f"- Additional column: `{col}`")
+
+        for wrap in context.wrappers:
+            adjustments.append(
+                f"- CTE Wrapper: {wrap.name} (priority {wrap.priority})\n"
+                f"```sql\n{wrap.snippet}\n```"
+            )
+
+        if adjustments:
+            sections.append("## Adjustments to Apply\n" + "\n\n".join(adjustments))
+
+        return "\n\n".join(sections)
 
     def _build_snippets_section(self) -> str:
         if not os.path.isdir(self.snippets_dir):
