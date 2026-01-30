@@ -2,6 +2,7 @@ import os
 import pytest
 import yaml
 from src.rule_engine import RuleEngine
+from src.models import AssemblyContext, JoinAdjustment, WrapAdjustment
 
 
 @pytest.fixture
@@ -99,3 +100,61 @@ def test_match_with_date_after_valid_from(engine):
     )
     names = [r.name for r in matched]
     assert "BR SCS Credit" in names
+
+
+@pytest.fixture
+def snippets_dir(tmp_path):
+    adj_dir = tmp_path / "snippets" / "adjustments"
+    adj_dir.mkdir(parents=True)
+    (adj_dir / "br_scs_credit.sql").write_text(
+        "SELECT grass_date, grass_region, sum(free_rev) AS br_scs\n"
+        "FROM mp_paidads.dws_advertise_net_ads_revenue_1d__reg_s0_live\n"
+        "WHERE grass_date >= date '{{ date_start }}'\n"
+        "GROUP BY 1, 2"
+    )
+    (adj_dir / "latam_currency.sql").write_text(
+        "SELECT *, amount * fx_rate AS amount_usd FROM base"
+    )
+    return str(tmp_path / "snippets")
+
+
+def test_build_context_with_join(engine, snippets_dir):
+    # Override snippet paths to use temp dir
+    for r in engine.rules:
+        if r.snippet_file:
+            r.snippet_file = os.path.join(
+                snippets_dir, os.path.relpath(r.snippet_file, "snippets")
+            )
+
+    matched = engine.match(market="BR", metric_tags=["revenue", "net"])
+    ctx = engine.build_context(
+        base_snippet="SELECT * FROM base_table",
+        matched_rules=matched,
+    )
+
+    assert ctx.base_snippet == "SELECT * FROM base_table"
+    assert len(ctx.joins) >= 1
+    assert ctx.joins[0].name == "BR SCS Credit"
+    assert "br_scs" in ctx.joins[0].snippet
+
+
+def test_build_context_no_rules():
+    engine = RuleEngine(rules_dir="/nonexistent")
+    ctx = engine.build_context(
+        base_snippet="SELECT 1",
+        matched_rules=[],
+    )
+    assert ctx.base_snippet == "SELECT 1"
+    assert ctx.joins == []
+    assert ctx.filters == []
+    assert ctx.wrappers == []
+
+
+def test_build_context_filter_rule(engine):
+    matched = engine.match(market="TH", metric_tags=["revenue", "net"])
+    ctx = engine.build_context(
+        base_snippet="SELECT * FROM t",
+        matched_rules=matched,
+    )
+    assert len(ctx.filters) == 1
+    assert "seller_type_1p" in ctx.filters[0]

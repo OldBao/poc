@@ -3,7 +3,7 @@ from typing import Optional
 
 import yaml
 
-from src.models import Rule
+from src.models import Rule, AssemblyContext, JoinAdjustment, WrapAdjustment
 
 
 class RuleEngine:
@@ -72,3 +72,46 @@ class RuleEngine:
                 return False
 
         return True
+
+    def build_context(
+        self,
+        base_snippet: str,
+        matched_rules: list[Rule],
+    ) -> AssemblyContext:
+        joins = []
+        filters = []
+        columns = []
+        wrappers = []
+
+        for rule in matched_rules:
+            snippet_content = ""
+            if rule.snippet_file:
+                with open(rule.snippet_file) as f:
+                    snippet_content = f.read()
+
+            if rule.effect_type == "left_join":
+                joins.append(JoinAdjustment(
+                    name=rule.name,
+                    snippet=snippet_content,
+                    join_keys=rule.join_keys,
+                ))
+            elif rule.effect_type == "filter":
+                filters.append(rule.clause or "")
+            elif rule.effect_type == "column":
+                columns.append(rule.clause or "")
+            elif rule.effect_type == "wrap":
+                wrappers.append(WrapAdjustment(
+                    name=rule.name,
+                    snippet=snippet_content,
+                    priority=rule.priority,
+                ))
+
+        wrappers.sort(key=lambda w: w.priority)
+
+        return AssemblyContext(
+            base_snippet=base_snippet,
+            joins=joins,
+            filters=filters,
+            columns=columns,
+            wrappers=wrappers,
+        )
