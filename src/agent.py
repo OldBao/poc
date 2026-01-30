@@ -1,73 +1,25 @@
+# src/agent.py
 import sys
-from src.registry import MetricRegistry
-from src.extractor import IntentExtractor
-from src.assembler import SQLAssembler
+from src.prompt_builder import PromptBuilder
+from src.llm_client import LLMClient
 
 
 class Agent:
     def __init__(
         self,
         metrics_dir: str = "metrics",
-        templates_dir: str = "templates",
         snippets_dir: str = "snippets",
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "gpt-4o",
     ):
-        self.registry = MetricRegistry(metrics_dir)
-        self.registry.load()
-        self.extractor = IntentExtractor(registry=self.registry, model=model)
-        self.assembler = SQLAssembler(templates_dir=templates_dir, snippets_dir=snippets_dir)
+        self.prompt_builder = PromptBuilder(metrics_dir=metrics_dir, snippets_dir=snippets_dir)
+        self.system_prompt = self.prompt_builder.build()
+        self.llm = LLMClient(model=model)
 
     def ask(self, question: str) -> dict:
-        parsed = self.extractor.extract(question)
-
-        if parsed.get("clarification_needed"):
-            return {"clarification": parsed["clarification_needed"]}
-
-        metric_name = parsed["metrics"][0] if parsed["metrics"] else None
-        if not metric_name:
-            return {"error": "No metric identified in the question."}
-
-        metric = self.registry.find(metric_name)
-        if not metric:
-            return {"error": f"Metric '{metric_name}' not found in registry."}
-
-        dims = parsed["dimensions"]
-        market = dims.get("market")
-        date_range = dims.get("date_range") or {}
-        date_start = date_range.get("start", "")
-        date_end = date_range.get("end", "")
-        module = dims.get("module")
-        granularity = "module" if module else "platform"
-
-        intent = parsed["intent"]
-
-        if intent == "compare" and dims.get("compare_to"):
-            comp = dims["compare_to"]
-            sql = self.assembler.assemble_compare(
-                metric=metric,
-                market=market,
-                current_start=date_start,
-                current_end=date_end,
-                previous_start=comp.get("start", ""),
-                previous_end=comp.get("end", ""),
-                granularity=granularity,
-            )
-        else:
-            sql = self.assembler.assemble(
-                metric=metric,
-                market=market,
-                date_start=date_start,
-                date_end=date_end,
-                granularity=granularity,
-            )
-
-        return {
-            "intent": intent,
-            "metric": metric.name,
-            "market": market,
-            "date_range": date_range,
-            "sql": sql,
-        }
+        return self.llm.call(
+            system_prompt=self.system_prompt,
+            user_message=question,
+        )
 
 
 def main():
@@ -86,15 +38,15 @@ def main():
 
         result = agent.ask(question)
 
-        if "clarification" in result:
-            print(f"\nClarification needed: {result['clarification']}")
-        elif "error" in result:
-            print(f"\nError: {result['error']}")
-        else:
-            print(f"\nMetric: {result['metric']}")
-            print(f"Market: {result.get('market', 'All')}")
-            print(f"Intent: {result['intent']}")
+        if result.get("type") == "ambiguous":
+            print("\nAmbiguous request. Did you mean:")
+            for i, candidate in enumerate(result["candidates"], 1):
+                print(f"  {i}. {candidate}")
+            print("Please rephrase with a specific metric.")
+        elif result.get("type") == "sql":
             print(f"\n--- Generated SQL ---\n{result['sql']}")
+        else:
+            print(f"\nUnexpected response: {result}")
 
 
 if __name__ == "__main__":
