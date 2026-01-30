@@ -100,7 +100,11 @@ def main():
     from prompt_toolkit.history import FileHistory
     from prompt_toolkit.formatted_text import HTML
     from prompt_toolkit.styles import Style
+    from prompt_toolkit.key_binding.bindings.emacs import load_emacs_bindings
     import os
+
+    # Explicitly load emacs bindings to ensure Ctrl+A, Ctrl+E, etc. work
+    emacs_bindings = load_emacs_bindings()
 
     style = Style.from_dict({
         "prompt": "#00aa00 bold",
@@ -121,6 +125,8 @@ def main():
                 HTML("<prompt>Q: </prompt>"),
                 style=style,
                 history=history,
+                key_bindings=emacs_bindings,
+                enable_open_in_editor=True,
             ).strip()
         except (EOFError, KeyboardInterrupt):
             print()
