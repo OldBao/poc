@@ -84,3 +84,10 @@ def test_prompt_includes_output_format():
         assert '"sql"' in prompt
         assert '"ambiguous"' in prompt
         assert '"candidates"' in prompt
+
+
+def test_prompt_has_conversation_instructions():
+    pb = PromptBuilder(metrics_dir="metrics", snippets_dir="snippets")
+    prompt = pb.build()
+    assert "ask in plain text" in prompt.lower() or "ask the user" in prompt.lower()
+    assert "need_info" not in prompt

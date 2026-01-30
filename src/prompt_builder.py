@@ -2,27 +2,23 @@ import os
 import yaml
 
 OUTPUT_FORMAT = """
-You must respond with ONLY valid JSON in one of these formats:
+You must respond in one of these ways:
 
-If the request is clear and you can generate SQL:
+1. If you can generate the SQL query, respond with ONLY this JSON:
 {
   "type": "sql",
   "sql": "SELECT ... (the complete SQL query)"
 }
 
-If the request is ambiguous (e.g., "revenue" could mean multiple metrics):
+2. If the request is ambiguous (could refer to multiple metrics), respond with ONLY this JSON:
 {
   "type": "ambiguous",
   "candidates": ["Candidate interpretation 1", "Candidate interpretation 2"]
 }
 
-If the metric is clear but required parameters are missing (market, date range, etc.):
-{
-  "type": "need_info",
-  "metric": "The identified metric name",
-  "missing": ["market", "date_range"],
-  "message": "A short question asking for the missing info"
-}
+3. If you need clarification (market, date range, or other details), ask in plain text. Do NOT return JSON. Just ask a short, natural question like "Which market and date range?" The user will reply and you can continue the conversation.
+
+IMPORTANT: Only return JSON when you are ready to output the final SQL or when the metric is ambiguous. For all other cases, ask in plain text.
 """
 
 SYSTEM_PREAMBLE = """You are an expert SQL generator for the S&R&A (Search, Recommendation & Ads) team at Shopee.
@@ -40,7 +36,6 @@ RULES:
 - When the user says a month name like "Nov" or "November 2025", infer the full date range (e.g., 2025-11-01 to 2025-11-30). Do NOT ask for clarification on date ranges when a month is given.
 - For comparison queries (MoM, YoY), use a CTE with current_period and previous_period, and compute change_rate.
 - If the question is ambiguous (could refer to multiple metrics), return ambiguous candidates instead of guessing.
-- Return ONLY JSON. No explanations, no markdown outside JSON.
 
 Available markets: ID, VN, TH, TW, BR, MX, PH, SG, MY, CO, CL
 """
