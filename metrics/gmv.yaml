@@ -1,6 +1,7 @@
 metric:
   name: GMV
   aliases: ["gross merchandise value", "交易额", "gmv"]
+  tags: [revenue, gross]
   type: simple
   aggregation: avg
   unit: usd

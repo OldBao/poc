@@ -1,6 +1,7 @@
 metric:
   name: DAU
   aliases: ["daily active users", "platform DAU", "日活"]
+  tags: [volume]
   type: simple
   aggregation: avg
   unit: count

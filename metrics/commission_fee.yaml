@@ -1,6 +1,7 @@
 metric:
   name: Commission Fee
   aliases: ["commission", "佣金", "commission fee"]
+  tags: [revenue, cost]
   type: simple
   aggregation: avg
   unit: usd

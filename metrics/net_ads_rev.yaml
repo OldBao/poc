@@ -1,6 +1,7 @@
 metric:
   name: Net Ads Rev
   aliases: ["net ads revenue", "净广告收入", "net ads rev"]
+  tags: [revenue, net, ads]
   type: complex
   snippet_file: snippets/net_ads_rev.sql
   unit: usd
