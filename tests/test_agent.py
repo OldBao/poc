@@ -1,102 +1,86 @@
-# tests/test_agent.py
-import json
-from unittest.mock import patch, MagicMock
-from src.agent import Agent, parse_response
+import pytest
+from unittest.mock import MagicMock
+from src.agent import Agent
 
 
-def test_start_sends_system_and_user_message():
-    with patch("src.agent.LLMClient") as MockLLM:
-        mock_llm = MagicMock()
-        MockLLM.return_value = mock_llm
-        mock_llm.chat.return_value = '{"type": "sql", "sql": "SELECT 1"}'
-
-        agent = Agent(metrics_dir="metrics", snippets_dir="snippets")
-        raw = agent.start("ID DAU Nov 2025")
-
-    assert raw == '{"type": "sql", "sql": "SELECT 1"}'
-    call_args = mock_llm.chat.call_args[1]
-    messages = call_args["messages"]
-    assert messages[0]["role"] == "system"
-    assert messages[1] == {"role": "user", "content": "ID DAU Nov 2025"}
-    assert len(messages) == 2
+@pytest.fixture
+def mock_llm():
+    llm = MagicMock()
+    llm.call.return_value = {
+        "intent": "query",
+        "metrics": ["dau"],
+        "dimensions": {
+            "market": "ID",
+            "date_range": {"start": "2025-11-01", "end": "2025-11-30"},
+        },
+        "clarification_needed": None,
+    }
+    return llm
 
 
-def test_start_resets_history():
-    with patch("src.agent.LLMClient") as MockLLM:
-        mock_llm = MagicMock()
-        MockLLM.return_value = mock_llm
-        mock_llm.chat.return_value = "Which market?"
-
-        agent = Agent(metrics_dir="metrics", snippets_dir="snippets")
-        agent.start("rev?")
-        agent.start("DAU?")
-
-    second_call_messages = mock_llm.chat.call_args[1]["messages"]
-    assert len(second_call_messages) == 2
-    assert second_call_messages[1]["content"] == "DAU?"
-
-
-def test_follow_up_appends_to_history():
-    with patch("src.agent.LLMClient") as MockLLM:
-        mock_llm = MagicMock()
-        MockLLM.return_value = mock_llm
-        mock_llm.chat.side_effect = [
-            "Which market and date range?",
-            '{"type": "sql", "sql": "SELECT 1"}',
-        ]
-
-        agent = Agent(metrics_dir="metrics", snippets_dir="snippets")
-        agent.start("Ads Gross Rev")
-        raw = agent.follow_up("ID Nov 2025")
-
-    assert raw == '{"type": "sql", "sql": "SELECT 1"}'
-    messages = mock_llm.chat.call_args[1]["messages"]
-    assert len(messages) == 4
-    assert messages[0]["role"] == "system"
-    assert messages[1] == {"role": "user", "content": "Ads Gross Rev"}
-    assert messages[2] == {"role": "assistant", "content": "Which market and date range?"}
-    assert messages[3] == {"role": "user", "content": "ID Nov 2025"}
+def test_simple_metric_uses_template(mock_llm, tmp_path):
+    agent = Agent(
+        metrics_dir="metrics",
+        snippets_dir="snippets",
+        templates_dir="templates",
+        value_index_path=str(tmp_path / "test.db"),
+        llm_client=mock_llm,
+    )
+    agent.value_index.upsert(
+        "traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live",
+        "grass_region",
+        [("ID", 1000)],
+    )
+    result = agent.ask("ID market DAU in November 2025")
+    assert result["type"] == "sql"
+    assert "traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live" in result["sql"]
+    assert "avg(a1)" in result["sql"]
+    assert "grass_region = 'ID'" in result["sql"]
+    # LLM should only be called once (for extraction)
+    assert mock_llm.call.call_count == 1
 
 
-def test_follow_up_accumulates_multiple_turns():
-    with patch("src.agent.LLMClient") as MockLLM:
-        mock_llm = MagicMock()
-        MockLLM.return_value = mock_llm
-        mock_llm.chat.side_effect = [
-            "Which market?",
-            "Which date range?",
-            '{"type": "sql", "sql": "SELECT 1"}',
-        ]
-
-        agent = Agent(metrics_dir="metrics", snippets_dir="snippets")
-        agent.start("Ads Gross Rev")
-        agent.follow_up("ID")
-        raw = agent.follow_up("Nov 2025")
-
-    assert raw == '{"type": "sql", "sql": "SELECT 1"}'
-    messages = mock_llm.chat.call_args[1]["messages"]
-    assert len(messages) == 6
-
-
-def test_parse_response_sql_json():
-    rtype, data = parse_response('{"type": "sql", "sql": "SELECT 1"}')
-    assert rtype == "sql"
-    assert data == {"type": "sql", "sql": "SELECT 1"}
+def test_ambiguous_query_returns_clarification(mock_llm, tmp_path):
+    mock_llm.call.return_value = {
+        "intent": "query",
+        "metrics": [],
+        "dimensions": {},
+        "clarification_needed": "Did you mean Ads Gross Rev or Net Ads Rev?",
+    }
+    agent = Agent(
+        metrics_dir="metrics",
+        snippets_dir="snippets",
+        templates_dir="templates",
+        value_index_path=str(tmp_path / "test.db"),
+        llm_client=mock_llm,
+    )
+    result = agent.ask("What's the revenue?")
+    assert result["type"] == "clarification"
+    assert "Did you mean" in result["message"]
 
 
-def test_parse_response_ambiguous_json():
-    rtype, data = parse_response('{"type": "ambiguous", "candidates": ["A", "B"]}')
-    assert rtype == "ambiguous"
-    assert data == {"type": "ambiguous", "candidates": ["A", "B"]}
-
-
-def test_parse_response_plain_text():
-    rtype, data = parse_response("Which market do you need?")
-    assert rtype == "text"
-    assert data == "Which market do you need?"
-
-
-def test_parse_response_json_in_markdown_fences():
-    rtype, data = parse_response('```json\n{"type": "sql", "sql": "SELECT 1"}\n```')
-    assert rtype == "sql"
-    assert data == {"type": "sql", "sql": "SELECT 1"}
+def test_invalid_market_returns_error(mock_llm, tmp_path):
+    mock_llm.call.return_value = {
+        "intent": "query",
+        "metrics": ["dau"],
+        "dimensions": {
+            "market": "XX",
+            "date_range": {"start": "2025-11-01", "end": "2025-11-30"},
+        },
+        "clarification_needed": None,
+    }
+    agent = Agent(
+        metrics_dir="metrics",
+        snippets_dir="snippets",
+        templates_dir="templates",
+        value_index_path=str(tmp_path / "test.db"),
+        llm_client=mock_llm,
+    )
+    agent.value_index.upsert(
+        "traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live",
+        "grass_region",
+        [("ID", 1000), ("TH", 500)],
+    )
+    result = agent.ask("XX market DAU in November 2025")
+    assert result["type"] == "error"
+    assert "XX" in result["message"]

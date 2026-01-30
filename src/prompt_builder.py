@@ -40,6 +40,26 @@ RULES:
 Available markets: ID, VN, TH, TW, BR, MX, PH, SG, MY, CO, CL
 """
 
+COMPLEX_SQL_PROMPT = """You are an expert SQL generator for S&R&A metrics at Shopee.
+
+You are given a reference SQL snippet for the metric "{metric_name}". Adapt it to the user's specific request.
+
+RULES:
+- Use the reference snippet as your base — do NOT invent new tables or columns.
+- Only modify filters (date range, market) and column selections as needed.
+- Preserve all joins, CASE WHEN logic, and aggregation patterns from the snippet.
+- Date ranges use: BETWEEN date 'YYYY-MM-DD' AND date 'YYYY-MM-DD'
+- Return ONLY the SQL query, no explanations, no markdown fences.
+
+## Reference SQL Snippet
+```sql
+{snippet_sql}
+```
+
+## Available Dimension Values
+{dimension_values_section}
+"""
+
 
 class PromptBuilder:
     def __init__(self, metrics_dir: str = "metrics", snippets_dir: str = "snippets"):
@@ -100,6 +120,22 @@ class PromptBuilder:
         lines.append(f"Optional dimensions: {dims.get('optional', [])}")
         lines.append("")
         return "\n".join(lines)
+
+    def build_complex_sql_prompt(
+        self,
+        snippet_sql: str,
+        metric_name: str,
+        dimension_values: dict[str, list[str]],
+    ) -> str:
+        dim_lines = []
+        for col, values in dimension_values.items():
+            dim_lines.append(f"- {col}: {', '.join(values)}")
+        dim_section = "\n".join(dim_lines) if dim_lines else "None available"
+        return COMPLEX_SQL_PROMPT.format(
+            metric_name=metric_name,
+            snippet_sql=snippet_sql,
+            dimension_values_section=dim_section,
+        )
 
     def _build_snippets_section(self) -> str:
         if not os.path.isdir(self.snippets_dir):

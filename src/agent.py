@@ -1,7 +1,13 @@
-# src/agent.py
-import json
-from src.prompt_builder import PromptBuilder
+from typing import Optional
+
 from src.llm_client import LLMClient
+from src.registry import MetricRegistry
+from src.extractor import Extractor
+from src.resolver import Resolver
+from src.assembler import Assembler
+from src.validator import SQLValidator
+from src.value_index import ValueIndex
+from src.prompt_builder import PromptBuilder
 
 
 class Agent:
@@ -9,46 +15,169 @@ class Agent:
         self,
         metrics_dir: str = "metrics",
         snippets_dir: str = "snippets",
+        templates_dir: str = "templates",
+        value_index_path: str = "value_index.db",
         model: str = "gpt-4o",
+        llm_client: Optional[LLMClient] = None,
     ):
-        self.prompt_builder = PromptBuilder(metrics_dir=metrics_dir, snippets_dir=snippets_dir)
-        self.system_prompt = self.prompt_builder.build()
-        self.llm = LLMClient(model=model)
-        self.messages = []
+        self.registry = MetricRegistry(metrics_dir=metrics_dir)
+        self.registry.load()
 
-    def start(self, question: str) -> str:
-        """Start a new conversation. Resets history."""
-        self.messages = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": question},
-        ]
-        response = self.llm.chat(messages=list(self.messages))
-        self.messages.append({"role": "assistant", "content": response})
-        return response
+        self.value_index = ValueIndex(value_index_path)
+        self.value_index.init_db()
 
-    def follow_up(self, answer: str) -> str:
-        """Continue the conversation with a follow-up answer."""
-        self.messages.append({"role": "user", "content": answer})
-        response = self.llm.chat(messages=list(self.messages))
-        self.messages.append({"role": "assistant", "content": response})
-        return response
+        self.llm = llm_client or LLMClient(model=model)
 
+        self.extractor = Extractor(
+            llm_client=self.llm,
+            metric_names=self.registry.list_names_and_aliases(),
+        )
+        self.resolver = Resolver(
+            registry=self.registry,
+            value_index=self.value_index,
+        )
+        self.assembler = Assembler(templates_dir=templates_dir)
+        self.validator = SQLValidator(
+            registry=self.registry,
+            value_index=self.value_index,
+        )
+        self.prompt_builder = PromptBuilder(
+            metrics_dir=metrics_dir,
+            snippets_dir=snippets_dir,
+        )
+        self.snippets_dir = snippets_dir
 
-def parse_response(raw: str) -> tuple:
-    """Parse LLM response. Returns (type, data).
+    def ask(self, question: str) -> dict:
+        # Step 1: Extract intent and entities
+        extraction = self.extractor.extract(question)
 
-    type is one of: "sql", "ambiguous", "text"
-    data is the parsed dict for sql/ambiguous, or the raw string for text.
-    """
-    import re
-    text = raw.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```\w*\n|```\s*$", "", text).strip()
-    try:
-        parsed = json.loads(text)
-        return parsed.get("type", "text"), parsed
-    except (json.JSONDecodeError, ValueError):
-        return "text", raw.strip()
+        if extraction.clarification_needed:
+            return {"type": "clarification", "message": extraction.clarification_needed}
+
+        # Step 2: Resolve metric and source
+        resolution = self.resolver.resolve(extraction)
+
+        if resolution.errors:
+            return {"type": "error", "message": "; ".join(resolution.errors)}
+
+        metric = resolution.metric
+
+        # Step 3: Generate SQL based on metric type
+        if metric.type == "simple":
+            sql = self._handle_simple(metric, resolution.source, extraction)
+        elif metric.type == "complex":
+            sql = self._handle_complex(metric, extraction, question)
+        elif metric.type == "derived":
+            sql = self._handle_derived(metric, extraction)
+        else:
+            return {"type": "error", "message": f"Unknown metric type: {metric.type}"}
+
+        if isinstance(sql, dict):
+            return sql  # Error dict
+
+        return {"type": "sql", "sql": sql}
+
+    def _handle_simple(self, metric, source, extraction) -> str | dict:
+        dims = extraction.dimensions
+        date_range = dims.get("date_range", {})
+        compare_to = dims.get("compare_to")
+
+        if extraction.intent == "compare" and compare_to:
+            return self.assembler.render_compare(
+                metric=metric,
+                source=source,
+                current_start=date_range.get("start", ""),
+                current_end=date_range.get("end", ""),
+                previous_start=compare_to.get("start", ""),
+                previous_end=compare_to.get("end", ""),
+                market=dims.get("market"),
+            )
+
+        return self.assembler.render_simple(
+            metric=metric,
+            source=source,
+            date_start=date_range.get("start", ""),
+            date_end=date_range.get("end", ""),
+            market=dims.get("market"),
+        )
+
+    def _handle_complex(self, metric, extraction, question: str, retry: bool = False) -> str | dict:
+        dims = extraction.dimensions
+        snippet_path = metric.snippet_file
+        if not snippet_path:
+            return {"type": "error", "message": f"No snippet file for complex metric '{metric.name}'"}
+
+        with open(snippet_path) as f:
+            snippet_sql = f.read()
+
+        dim_values = {}
+        for source in metric.sources:
+            for col_name in source.columns.values():
+                vals = self.value_index.get_values(source.table, col_name)
+                if vals:
+                    dim_values[col_name] = vals
+
+        system_prompt = self.prompt_builder.build_complex_sql_prompt(
+            snippet_sql=snippet_sql,
+            metric_name=metric.name,
+            dimension_values=dim_values,
+        )
+
+        user_msg = f"Question: {question}\nMarket: {dims.get('market', 'all')}\nDate range: {dims.get('date_range', {})}"
+        result = self.llm.call(system_prompt=system_prompt, user_message=user_msg)
+
+        sql = result.get("sql", "") if isinstance(result, dict) else str(result)
+
+        errors = self.validator.validate(sql)
+        if errors and not retry:
+            return self._handle_complex(metric, extraction, question, retry=True)
+        elif errors:
+            return {"type": "error", "message": f"SQL validation failed: {'; '.join(errors)}"}
+
+        return sql
+
+    def _handle_derived(self, metric, extraction) -> str | dict:
+        deps = metric.depends_on
+        if len(deps) != 2 or "/" not in (metric.formula or ""):
+            return {"type": "error", "message": f"Unsupported derived metric formula: {metric.formula}"}
+
+        sub_sqls = []
+        for dep_name in deps:
+            dep_metric = self.registry.find(dep_name)
+            if dep_metric is None:
+                return {"type": "error", "message": f"Dependency '{dep_name}' not found"}
+            if dep_metric.type == "simple" and dep_metric.sources:
+                source = dep_metric.select_source("platform")
+                sql = self._handle_simple(dep_metric, source, extraction)
+                if isinstance(sql, dict):
+                    return sql
+                sub_sqls.append((dep_metric.name.lower().replace(" ", "_"), sql))
+            elif dep_metric.type == "complex":
+                return {"type": "error", "message": f"Derived from complex metric '{dep_name}' not yet supported"}
+
+        if len(sub_sqls) != 2:
+            return {"type": "error", "message": "Could not resolve both dependencies"}
+
+        name_a, sql_a = sub_sqls[0]
+        name_b, sql_b = sub_sqls[1]
+        ratio_name = metric.name.lower().replace(" ", "_")
+
+        combined = f"""WITH {name_a}_cte AS (
+    {sql_a}
+),
+{name_b}_cte AS (
+    {sql_b}
+)
+SELECT
+    a.period
+    , a.market
+    , a.{name_a}
+    , b.{name_b}
+    , a.{name_a} / NULLIF(b.{name_b}, 0) AS {ratio_name}
+FROM {name_a}_cte a
+JOIN {name_b}_cte b ON a.period = b.period AND a.market = b.market
+"""
+        return combined
 
 
 def main():
@@ -65,49 +194,16 @@ def main():
         if not question:
             continue
 
-        try:
-            raw = agent.start(question)
-        except Exception as e:
-            print(f"\nError: {e}")
-            continue
+        result = agent.ask(question)
 
-        while True:
-            rtype, data = parse_response(raw)
-
-            if rtype == "sql":
-                print(f"\n--- Generated SQL ---\n{data['sql']}")
-                break
-
-            if rtype == "ambiguous":
-                candidates = data["candidates"]
-                print("\nAmbiguous request. Did you mean:")
-                for i, candidate in enumerate(candidates, 1):
-                    print(f"  {i}. {candidate}")
-                print("Select a number or rephrase your question.")
-            else:
-                # Plain text clarification from LLM
-                print(f"\n{data}")
-
-            try:
-                answer = input("\nQ: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                return
-            if answer.lower() in ("quit", "exit", "q"):
-                return
-            if not answer:
-                break
-
-            # Handle numeric selection for ambiguous
-            if rtype == "ambiguous" and answer.isdigit():
-                idx = int(answer)
-                if 1 <= idx <= len(candidates):
-                    answer = candidates[idx - 1]
-
-            try:
-                raw = agent.follow_up(answer)
-            except Exception as e:
-                print(f"\nError: {e}")
-                break
+        if result["type"] == "sql":
+            print(f"\n--- Generated SQL ---\n{result['sql']}")
+        elif result["type"] == "clarification":
+            print(f"\n{result['message']}")
+        elif result["type"] == "error":
+            print(f"\nError: {result['message']}")
+        else:
+            print(f"\nUnexpected: {result}")
 
 
 if __name__ == "__main__":

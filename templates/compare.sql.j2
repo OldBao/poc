@@ -1,0 +1,39 @@
+WITH current_period AS (
+    SELECT
+        substr(cast({{ source.columns.date }} as varchar), 1, 7) AS period
+        , {{ source.columns.region }} AS market
+        , {{ metric.aggregation }}({{ source.columns.value }}) AS {{ metric_col }}
+    FROM {{ source.table }}
+    WHERE {{ source.columns.date }} BETWEEN date '{{ current_start }}' AND date '{{ current_end }}'
+{%- for f in source.filters %}
+        AND {{ f }}
+{%- endfor %}
+{%- if market %}
+        AND {{ source.columns.region }} = '{{ market }}'
+{%- endif %}
+    GROUP BY 1, 2
+),
+previous_period AS (
+    SELECT
+        substr(cast({{ source.columns.date }} as varchar), 1, 7) AS period
+        , {{ source.columns.region }} AS market
+        , {{ metric.aggregation }}({{ source.columns.value }}) AS {{ metric_col }}
+    FROM {{ source.table }}
+    WHERE {{ source.columns.date }} BETWEEN date '{{ previous_start }}' AND date '{{ previous_end }}'
+{%- for f in source.filters %}
+        AND {{ f }}
+{%- endfor %}
+{%- if market %}
+        AND {{ source.columns.region }} = '{{ market }}'
+{%- endif %}
+    GROUP BY 1, 2
+)
+SELECT
+    c.period AS current_period
+    , p.period AS previous_period
+    , c.market
+    , c.{{ metric_col }} AS current_value
+    , p.{{ metric_col }} AS previous_value
+    , (c.{{ metric_col }} - p.{{ metric_col }}) / NULLIF(p.{{ metric_col }}, 0) AS change_rate
+FROM current_period c
+LEFT JOIN previous_period p ON c.market = p.market

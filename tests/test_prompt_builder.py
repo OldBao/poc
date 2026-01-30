@@ -70,6 +70,19 @@ def test_prompt_includes_sql_snippets():
         assert "SELECT sum(ads_rev_usd)" in prompt
 
 
+def test_complex_sql_prompt_includes_snippet():
+    builder = PromptBuilder(metrics_dir="metrics", snippets_dir="snippets")
+    prompt = builder.build_complex_sql_prompt(
+        snippet_sql="SELECT * FROM table WHERE x = 1",
+        metric_name="Ads Gross Rev",
+        dimension_values={"grass_region": ["ID", "TH", "VN"]},
+    )
+    assert "SELECT * FROM table" in prompt
+    assert "Ads Gross Rev" in prompt
+    assert "ID" in prompt
+    assert "TH" in prompt
+
+
 def test_prompt_includes_output_format():
     with tempfile.TemporaryDirectory() as tmpdir:
         metrics_dir = os.path.join(tmpdir, "metrics")

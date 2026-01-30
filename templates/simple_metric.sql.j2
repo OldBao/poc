@@ -1,0 +1,14 @@
+SELECT
+    substr(cast({{ source.columns.date }} as varchar), 1, 7) AS period
+    , {{ source.columns.region }} AS market
+    , {{ metric.aggregation }}({{ source.columns.value }}) AS {{ metric.name | lower | replace(' ', '_') }}
+FROM {{ source.table }}
+WHERE {{ source.columns.date }} BETWEEN date '{{ date_start }}' AND date '{{ date_end }}'
+{%- for f in source.filters %}
+    AND {{ f }}
+{%- endfor %}
+{%- if market %}
+    AND {{ source.columns.region }} = '{{ market }}'
+{%- endif %}
+GROUP BY 1, 2
+ORDER BY 1 DESC
