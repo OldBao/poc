@@ -1,0 +1,26 @@
+metric:
+  name: Net Ads Rev (Atomic)
+  aliases: ["net ads revenue atomic"]
+  tags: [revenue, net, ads]
+  type: atomic
+  unit: usd
+
+  source:
+    table: mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+    grain: daily
+    date_column: grass_date
+    region_column: grass_region
+    base_filters:
+      - "tz_type = 'regional'"
+
+  columns:
+    net_ads_rev:
+      expr: "sum(net_ads_rev_usd)"
+      agg_across_days: "sum"
+    net_ads_rev_excl_1p:
+      expr: "sum(CASE WHEN seller_type_1p NOT IN ('Local SCS', 'SCS', 'Lovito') THEN net_ads_rev_excl_sip_usd_1d END)"
+      agg_across_days: "sum"
+      variant: "excl_1p"
+
+  dimensions:
+    required: [market, date_range]
