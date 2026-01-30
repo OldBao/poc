@@ -1,4 +1,5 @@
 # src/agent.py
+import json
 from src.prompt_builder import PromptBuilder
 from src.llm_client import LLMClient
 
@@ -13,95 +14,28 @@ class Agent:
         self.prompt_builder = PromptBuilder(metrics_dir=metrics_dir, snippets_dir=snippets_dir)
         self.system_prompt = self.prompt_builder.build()
         self.llm = LLMClient(model=model)
+        self.messages = []
 
-    def ask(self, question: str) -> dict:
-        return self.llm.call(
-            system_prompt=self.system_prompt,
-            user_message=question,
-        )
+    def start(self, question: str) -> str:
+        """Start a new conversation. Resets history."""
+        self.messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": question},
+        ]
+        response = self.llm.chat(messages=list(self.messages))
+        self.messages.append({"role": "assistant", "content": response})
+        return response
 
-
-def _read_input():
-    """Read user input, returning None on EOF/interrupt."""
-    try:
-        return input("\nQ: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        return None
-
-
-def _is_quit(text):
-    return text.lower() in ("quit", "exit", "q")
-
-
-def _handle_result(agent, result):
-    """Handle a result, prompting for follow-up if needed. Returns True to continue, False to quit."""
-    context_parts = []  # accumulate user-provided details across turns
-
-    while True:
-        rtype = result.get("type")
-
-        if rtype == "sql":
-            print(f"\n--- Generated SQL ---\n{result['sql']}")
-            return True
-
-        if rtype == "ambiguous":
-            candidates = result["candidates"]
-            print("\nAmbiguous request. Did you mean:")
-            for i, candidate in enumerate(candidates, 1):
-                print(f"  {i}. {candidate}")
-            print("Select a number or rephrase your question.")
-            follow_up = _read_input()
-            if follow_up is None or _is_quit(follow_up):
-                return False
-            if not follow_up:
-                return True
-            if follow_up.isdigit() and 1 <= int(follow_up) <= len(candidates):
-                follow_up = candidates[int(follow_up) - 1]
-            context_parts.append(follow_up)
-
-        elif rtype == "need_info":
-            print(f"\n{result.get('message', 'Please provide more details.')}")
-            follow_up = _read_input()
-            if follow_up is None or _is_quit(follow_up):
-                return False
-            if not follow_up:
-                return True
-            context_parts.append(follow_up)
-            metric = result.get("metric", "")
-            # Build full query from accumulated context
-            all_context = " ".join(context_parts)
-            follow_up = f"Generate SQL for: {metric}. Details: {all_context}"
-
-        else:
-            print(f"\nUnexpected response: {result}")
-            return True
-
-        try:
-            result = agent.ask(follow_up)
-        except Exception as e:
-            print(f"\nError: {e}")
-            return True
+    def follow_up(self, answer: str) -> str:
+        """Continue the conversation with a follow-up answer."""
+        self.messages.append({"role": "user", "content": answer})
+        response = self.llm.chat(messages=list(self.messages))
+        self.messages.append({"role": "assistant", "content": response})
+        return response
 
 
 def main():
-    agent = Agent()
-    print("S&R&A Metric Agent (type 'quit' to exit)")
-    print("-" * 50)
-    while True:
-        question = _read_input()
-        if question is None or _is_quit(question):
-            break
-        if not question:
-            continue
-
-        try:
-            result = agent.ask(question)
-        except Exception as e:
-            print(f"\nError: {e}")
-            continue
-
-        if not _handle_result(agent, result):
-            break
+    print("CLI will be rewritten in Task 3")
 
 
 if __name__ == "__main__":

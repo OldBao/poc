@@ -1,100 +1,78 @@
 # tests/test_agent.py
-from unittest.mock import patch, MagicMock, call
-from src.agent import Agent, _handle_result
+import json
+from unittest.mock import patch, MagicMock
+from src.agent import Agent
 
 
-def test_agent_returns_sql_for_clear_question():
-    expected_sql = "SELECT avg(a1) AS dau FROM traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30' AND grass_region = 'ID'"
-
+def test_start_sends_system_and_user_message():
     with patch("src.agent.LLMClient") as MockLLM:
         mock_llm = MagicMock()
         MockLLM.return_value = mock_llm
-        mock_llm.call.return_value = {"type": "sql", "sql": expected_sql}
+        mock_llm.chat.return_value = '{"type": "sql", "sql": "SELECT 1"}'
 
         agent = Agent(metrics_dir="metrics", snippets_dir="snippets")
-        result = agent.ask("ID market DAU in November 2025")
+        raw = agent.start("ID DAU Nov 2025")
 
-    assert result["type"] == "sql"
-    assert "avg(a1)" in result["sql"]
-    mock_llm.call.assert_called_once()
+    assert raw == '{"type": "sql", "sql": "SELECT 1"}'
+    call_args = mock_llm.chat.call_args[1]
+    messages = call_args["messages"]
+    assert messages[0]["role"] == "system"
+    assert messages[1] == {"role": "user", "content": "ID DAU Nov 2025"}
+    assert len(messages) == 2
 
 
-def test_agent_returns_ambiguous_for_vague_question():
+def test_start_resets_history():
     with patch("src.agent.LLMClient") as MockLLM:
         mock_llm = MagicMock()
         MockLLM.return_value = mock_llm
-        mock_llm.call.return_value = {
-            "type": "ambiguous",
-            "candidates": ["Ads Gross Rev (total ads revenue)", "Net Ads Rev (after deductions)"],
-        }
+        mock_llm.chat.return_value = "Which market?"
 
         agent = Agent(metrics_dir="metrics", snippets_dir="snippets")
-        result = agent.ask("What's the revenue?")
+        agent.start("rev?")
+        agent.start("DAU?")
 
-    assert result["type"] == "ambiguous"
-    assert len(result["candidates"]) == 2
+    second_call_messages = mock_llm.chat.call_args[1]["messages"]
+    assert len(second_call_messages) == 2
+    assert second_call_messages[1]["content"] == "DAU?"
 
 
-def test_handle_result_ambiguous_numeric_selection():
-    """Selecting a number from ambiguous candidates re-asks with that candidate."""
+def test_follow_up_appends_to_history():
     with patch("src.agent.LLMClient") as MockLLM:
         mock_llm = MagicMock()
         MockLLM.return_value = mock_llm
-        # Re-asking with candidate returns SQL
-        mock_llm.call.return_value = {"type": "sql", "sql": "SELECT avg(ads_rev) ..."}
+        mock_llm.chat.side_effect = [
+            "Which market and date range?",
+            '{"type": "sql", "sql": "SELECT 1"}',
+        ]
+
         agent = Agent(metrics_dir="metrics", snippets_dir="snippets")
+        agent.start("Ads Gross Rev")
+        raw = agent.follow_up("ID Nov 2025")
 
-    ambiguous_result = {"type": "ambiguous", "candidates": ["Ads Gross Rev", "Net Ads Rev"]}
-
-    with patch("src.agent._read_input", return_value="1"):
-        cont = _handle_result(agent, ambiguous_result)
-
-    assert cont is True
-    # Should have re-asked with the selected candidate
-    agent.llm.call.assert_called_once()
-    call_args = agent.llm.call.call_args
-    user_msg = call_args[1].get("user_message") or call_args[0][1]
-    assert user_msg == "Ads Gross Rev"
+    assert raw == '{"type": "sql", "sql": "SELECT 1"}'
+    messages = mock_llm.chat.call_args[1]["messages"]
+    assert len(messages) == 4
+    assert messages[0]["role"] == "system"
+    assert messages[1] == {"role": "user", "content": "Ads Gross Rev"}
+    assert messages[2] == {"role": "assistant", "content": "Which market and date range?"}
+    assert messages[3] == {"role": "user", "content": "ID Nov 2025"}
 
 
-def test_handle_result_need_info_provides_details():
-    """When LLM needs more info, user's answer is combined with metric and re-asked."""
+def test_follow_up_accumulates_multiple_turns():
     with patch("src.agent.LLMClient") as MockLLM:
         mock_llm = MagicMock()
         MockLLM.return_value = mock_llm
-        mock_llm.call.return_value = {"type": "sql", "sql": "SELECT avg(ads_rev) ..."}
+        mock_llm.chat.side_effect = [
+            "Which market?",
+            "Which date range?",
+            '{"type": "sql", "sql": "SELECT 1"}',
+        ]
+
         agent = Agent(metrics_dir="metrics", snippets_dir="snippets")
+        agent.start("Ads Gross Rev")
+        agent.follow_up("ID")
+        raw = agent.follow_up("Nov 2025")
 
-    need_info_result = {
-        "type": "need_info",
-        "metric": "Ads Gross Rev",
-        "missing": ["market", "date_range"],
-        "message": "Which market and date range?",
-    }
-
-    with patch("src.agent._read_input", return_value="ID November 2025"):
-        cont = _handle_result(agent, need_info_result)
-
-    assert cont is True
-    agent.llm.call.assert_called_once()
-    call_args = agent.llm.call.call_args
-    user_msg = call_args[1].get("user_message") or call_args[0][1]
-    assert "Ads Gross Rev" in user_msg
-    assert "ID November 2025" in user_msg
-
-
-def test_handle_result_ambiguous_then_quit():
-    """Typing quit during ambiguous follow-up exits."""
-    ambiguous_result = {"type": "ambiguous", "candidates": ["A", "B"]}
-
-    with patch("src.agent._read_input", return_value="quit"):
-        cont = _handle_result(MagicMock(), ambiguous_result)
-
-    assert cont is False
-
-
-def test_handle_result_sql_returns_immediately():
-    """SQL result prints and returns without prompting."""
-    sql_result = {"type": "sql", "sql": "SELECT 1"}
-    cont = _handle_result(MagicMock(), sql_result)
-    assert cont is True
+    assert raw == '{"type": "sql", "sql": "SELECT 1"}'
+    messages = mock_llm.chat.call_args[1]["messages"]
+    assert len(messages) == 6
