@@ -1,5 +1,8 @@
 import pytest
-from src.models import MetricDefinition, MetricSource, Rule, JoinAdjustment, WrapAdjustment, AssemblyContext
+from src.models import (
+    MetricDefinition, MetricSource, Rule, JoinAdjustment, WrapAdjustment,
+    AssemblyContext, AtomicSource, AtomicColumn, QueryIntent,
+)
 
 
 def test_simple_metric_from_dict():
@@ -155,3 +158,68 @@ def test_metric_definition_without_tags():
     }
     m = MetricDefinition.from_dict(data)
     assert m.tags == []
+
+
+def test_atomic_metric_from_dict():
+    data = {
+        "metric": {
+            "name": "Net Ads Rev",
+            "aliases": ["net ads revenue"],
+            "type": "atomic",
+            "tags": ["revenue", "net", "ads"],
+            "source": {
+                "table": "mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live",
+                "grain": "daily",
+                "date_column": "grass_date",
+                "region_column": "grass_region",
+                "base_filters": ["tz_type = 'regional'"],
+            },
+            "columns": {
+                "net_ads_rev": {
+                    "expr": "sum(net_ads_rev_usd)",
+                    "agg_across_days": "sum",
+                },
+                "net_ads_rev_excl_1p": {
+                    "expr": "sum(CASE WHEN seller_type_1p NOT IN ('Local SCS') THEN net_ads_rev_excl_sip_usd_1d END)",
+                    "agg_across_days": "sum",
+                    "variant": "excl_1p",
+                },
+            },
+            "dimensions": {"required": ["market", "date_range"]},
+        }
+    }
+    m = MetricDefinition.from_dict(data)
+    assert m.type == "atomic"
+    assert m.atomic_source is not None
+    assert m.atomic_source.table == "mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live"
+    assert m.atomic_source.grain == "daily"
+    assert m.atomic_source.date_column == "grass_date"
+    assert m.atomic_source.region_column == "grass_region"
+    assert m.atomic_source.base_filters == ["tz_type = 'regional'"]
+    assert len(m.atomic_columns) == 2
+    assert m.atomic_columns["net_ads_rev"].expr == "sum(net_ads_rev_usd)"
+    assert m.atomic_columns["net_ads_rev"].agg_across_days == "sum"
+    assert m.atomic_columns["net_ads_rev"].variant is None
+    assert m.atomic_columns["net_ads_rev_excl_1p"].variant == "excl_1p"
+
+
+def test_atomic_metric_from_dict_no_source():
+    """Non-atomic metrics should have atomic_source=None."""
+    data = {
+        "metric": {
+            "name": "DAU",
+            "aliases": [],
+            "type": "simple",
+            "dimensions": {"required": ["market", "date_range"]},
+        }
+    }
+    m = MetricDefinition.from_dict(data)
+    assert m.atomic_source is None
+    assert m.atomic_columns == {}
+
+
+def test_query_intent_defaults():
+    intent = QueryIntent(metric_name="Test")
+    assert intent.granularity == "monthly"
+    assert intent.market is None
+    assert intent.variant is None

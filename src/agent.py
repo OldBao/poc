@@ -9,6 +9,8 @@ from src.validator import SQLValidator
 from src.value_index import ValueIndex
 from src.prompt_builder import PromptBuilder
 from src.rule_engine import RuleEngine
+from src.atomic_assembler import AtomicAssembler
+from src.models import QueryIntent
 
 
 class Agent:
@@ -52,6 +54,8 @@ class Agent:
         self.rule_engine = RuleEngine(rules_dir=rules_dir)
         self.rule_engine.load()
 
+        self.atomic_assembler = AtomicAssembler()
+
     def ask(self, question: str) -> dict:
         # Step 1: Extract intent and entities
         extraction = self.extractor.extract(question)
@@ -74,6 +78,8 @@ class Agent:
             sql = self._handle_complex(metric, extraction, question)
         elif metric.type == "derived":
             sql = self._handle_derived(metric, extraction)
+        elif metric.type == "atomic":
+            sql = self._handle_atomic(metric, extraction)
         else:
             return {"type": "error", "message": f"Unknown metric type: {metric.type}"}
 
@@ -190,6 +196,26 @@ FROM {name_a}_cte a
 JOIN {name_b}_cte b ON a.period = b.period AND a.market = b.market
 """
         return combined
+
+
+    def _handle_atomic(self, metric, extraction) -> str | dict:
+        """Handle atomic metrics with deterministic SQL assembly (no LLM)."""
+        dims = extraction.dimensions
+        date_range = dims.get("date_range") or {}
+
+        intent = QueryIntent(
+            metric_name=metric.name,
+            market=dims.get("market"),
+            date_start=date_range.get("start"),
+            date_end=date_range.get("end"),
+            granularity=dims.get("granularity", "monthly"),
+            variant=dims.get("variant"),
+        )
+
+        try:
+            return self.atomic_assembler.assemble(metric, intent)
+        except ValueError as e:
+            return {"type": "error", "message": str(e)}
 
 
 def main():

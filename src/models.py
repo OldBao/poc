@@ -3,6 +3,35 @@ from typing import Optional
 
 
 @dataclass
+class AtomicSource:
+    """Source definition for atomic metrics — single table with grain metadata."""
+    table: str
+    grain: str  # e.g., "daily"
+    date_column: str
+    region_column: str
+    base_filters: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AtomicColumn:
+    """Column definition with inner expression and cross-day aggregation."""
+    expr: str  # SQL expression at source grain, e.g., "sum(net_ads_rev_usd)"
+    agg_across_days: str  # Rollup function, e.g., "sum", "avg"
+    variant: Optional[str] = None  # e.g., "excl_1p"
+
+
+@dataclass
+class QueryIntent:
+    """Structured intent for atomic metric assembly."""
+    metric_name: str
+    market: Optional[str] = None
+    date_start: Optional[str] = None
+    date_end: Optional[str] = None
+    granularity: str = "monthly"  # daily, monthly, yearly, total
+    variant: Optional[str] = None
+
+
+@dataclass
 class MetricSource:
     id: str
     layer: str
@@ -28,11 +57,36 @@ class MetricDefinition:
     owner: Optional[str] = None
     notes: Optional[str] = None
     tags: list[str] = field(default_factory=list)
+    atomic_source: Optional[AtomicSource] = None
+    atomic_columns: dict[str, AtomicColumn] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict) -> "MetricDefinition":
         m = data["metric"]
         sources = [MetricSource(**s) for s in m.get("sources", [])]
+
+        # Parse atomic source (singular "source" block)
+        atomic_source = None
+        if "source" in m:
+            src = m["source"]
+            atomic_source = AtomicSource(
+                table=src["table"],
+                grain=src["grain"],
+                date_column=src["date_column"],
+                region_column=src["region_column"],
+                base_filters=src.get("base_filters", []),
+            )
+
+        # Parse atomic columns
+        atomic_columns = {}
+        if "columns" in m:
+            for col_name, col_def in m["columns"].items():
+                atomic_columns[col_name] = AtomicColumn(
+                    expr=col_def["expr"],
+                    agg_across_days=col_def["agg_across_days"],
+                    variant=col_def.get("variant"),
+                )
+
         return cls(
             name=m["name"],
             aliases=m.get("aliases", []),
@@ -48,6 +102,8 @@ class MetricDefinition:
             owner=m.get("owner"),
             notes=m.get("notes"),
             tags=m.get("tags", []),
+            atomic_source=atomic_source,
+            atomic_columns=atomic_columns,
         )
 
     def select_source(self, granularity: Optional[str] = None) -> MetricSource:
