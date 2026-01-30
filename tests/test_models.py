@@ -1,5 +1,5 @@
 import pytest
-from src.models import MetricDefinition, MetricSource
+from src.models import MetricDefinition, MetricSource, Rule, JoinAdjustment, WrapAdjustment, AssemblyContext
 
 
 def test_simple_metric_from_dict():
@@ -80,3 +80,78 @@ def test_source_select_default_first():
         dimensions={"required": ["market", "date_range"], "optional": []},
     )
     assert m.select_source() == s1
+
+
+def test_rule_from_dict():
+    data = {
+        "rule": {
+            "name": "BR SCS Credit",
+            "description": "Adjusts net rev for BR",
+            "when": {"market": "BR", "metric_tags": ["revenue", "net"]},
+            "effect": {
+                "type": "left_join",
+                "snippet_file": "snippets/adjustments/br_scs_credit.sql",
+                "join_keys": ["grass_date", "grass_region"],
+            },
+            "valid_from": "2025-01-01",
+        }
+    }
+    rule = Rule.from_dict(data)
+    assert rule.name == "BR SCS Credit"
+    assert rule.when == {"market": "BR", "metric_tags": ["revenue", "net"]}
+    assert rule.effect_type == "left_join"
+    assert rule.snippet_file == "snippets/adjustments/br_scs_credit.sql"
+    assert rule.join_keys == ["grass_date", "grass_region"]
+    assert rule.valid_from == "2025-01-01"
+
+
+def test_rule_from_dict_minimal():
+    data = {
+        "rule": {
+            "name": "Simple filter",
+            "description": "Adds a filter",
+            "when": {"metric_tags": ["revenue"]},
+            "effect": {"type": "filter", "clause": "AND seller_type != '1P'"},
+        }
+    }
+    rule = Rule.from_dict(data)
+    assert rule.name == "Simple filter"
+    assert rule.effect_type == "filter"
+    assert rule.clause == "AND seller_type != '1P'"
+    assert rule.snippet_file is None
+    assert rule.valid_from is None
+
+
+def test_assembly_context_defaults():
+    ctx = AssemblyContext(base_snippet="SELECT 1")
+    assert ctx.joins == []
+    assert ctx.filters == []
+    assert ctx.columns == []
+    assert ctx.wrappers == []
+
+
+def test_metric_definition_with_tags():
+    data = {
+        "metric": {
+            "name": "Net Ads Rev",
+            "aliases": ["net ads revenue"],
+            "type": "complex",
+            "tags": ["revenue", "net", "ads"],
+            "dimensions": {"required": ["market", "date_range"], "optional": []},
+        }
+    }
+    m = MetricDefinition.from_dict(data)
+    assert m.tags == ["revenue", "net", "ads"]
+
+
+def test_metric_definition_without_tags():
+    data = {
+        "metric": {
+            "name": "DAU",
+            "aliases": [],
+            "type": "simple",
+            "dimensions": {"required": ["market", "date_range"], "optional": []},
+        }
+    }
+    m = MetricDefinition.from_dict(data)
+    assert m.tags == []
