@@ -1,35 +1,86 @@
-# tests/test_agent.py
-from unittest.mock import patch, MagicMock
+import pytest
+from unittest.mock import MagicMock
 from src.agent import Agent
 
 
-def test_agent_returns_sql_for_clear_question():
-    expected_sql = "SELECT avg(a1) AS dau FROM traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live WHERE grass_date BETWEEN date '2025-11-01' AND date '2025-11-30' AND grass_region = 'ID'"
+@pytest.fixture
+def mock_llm():
+    llm = MagicMock()
+    llm.call.return_value = {
+        "intent": "query",
+        "metrics": ["dau"],
+        "dimensions": {
+            "market": "ID",
+            "date_range": {"start": "2025-11-01", "end": "2025-11-30"},
+        },
+        "clarification_needed": None,
+    }
+    return llm
 
-    with patch("src.agent.LLMClient") as MockLLM:
-        mock_llm = MagicMock()
-        MockLLM.return_value = mock_llm
-        mock_llm.call.return_value = {"type": "sql", "sql": expected_sql}
 
-        agent = Agent(metrics_dir="metrics", snippets_dir="snippets")
-        result = agent.ask("ID market DAU in November 2025")
-
+def test_simple_metric_uses_template(mock_llm, tmp_path):
+    agent = Agent(
+        metrics_dir="metrics",
+        snippets_dir="snippets",
+        templates_dir="templates",
+        value_index_path=str(tmp_path / "test.db"),
+        llm_client=mock_llm,
+    )
+    agent.value_index.upsert(
+        "traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live",
+        "grass_region",
+        [("ID", 1000)],
+    )
+    result = agent.ask("ID market DAU in November 2025")
     assert result["type"] == "sql"
+    assert "traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live" in result["sql"]
     assert "avg(a1)" in result["sql"]
-    mock_llm.call.assert_called_once()
+    assert "grass_region = 'ID'" in result["sql"]
+    # LLM should only be called once (for extraction)
+    assert mock_llm.call.call_count == 1
 
 
-def test_agent_returns_ambiguous_for_vague_question():
-    with patch("src.agent.LLMClient") as MockLLM:
-        mock_llm = MagicMock()
-        MockLLM.return_value = mock_llm
-        mock_llm.call.return_value = {
-            "type": "ambiguous",
-            "candidates": ["Ads Gross Rev (total ads revenue)", "Net Ads Rev (after deductions)"],
-        }
+def test_ambiguous_query_returns_clarification(mock_llm, tmp_path):
+    mock_llm.call.return_value = {
+        "intent": "query",
+        "metrics": [],
+        "dimensions": {},
+        "clarification_needed": "Did you mean Ads Gross Rev or Net Ads Rev?",
+    }
+    agent = Agent(
+        metrics_dir="metrics",
+        snippets_dir="snippets",
+        templates_dir="templates",
+        value_index_path=str(tmp_path / "test.db"),
+        llm_client=mock_llm,
+    )
+    result = agent.ask("What's the revenue?")
+    assert result["type"] == "clarification"
+    assert "Did you mean" in result["message"]
 
-        agent = Agent(metrics_dir="metrics", snippets_dir="snippets")
-        result = agent.ask("What's the revenue?")
 
-    assert result["type"] == "ambiguous"
-    assert len(result["candidates"]) == 2
+def test_invalid_market_returns_error(mock_llm, tmp_path):
+    mock_llm.call.return_value = {
+        "intent": "query",
+        "metrics": ["dau"],
+        "dimensions": {
+            "market": "XX",
+            "date_range": {"start": "2025-11-01", "end": "2025-11-30"},
+        },
+        "clarification_needed": None,
+    }
+    agent = Agent(
+        metrics_dir="metrics",
+        snippets_dir="snippets",
+        templates_dir="templates",
+        value_index_path=str(tmp_path / "test.db"),
+        llm_client=mock_llm,
+    )
+    agent.value_index.upsert(
+        "traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live",
+        "grass_region",
+        [("ID", 1000), ("TH", 500)],
+    )
+    result = agent.ask("XX market DAU in November 2025")
+    assert result["type"] == "error"
+    assert "XX" in result["message"]
