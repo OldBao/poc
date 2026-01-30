@@ -3,31 +3,12 @@ from datetime import date
 
 import yaml
 
-from src.models import AssemblyContext
-
-OUTPUT_FORMAT = """
-You must respond in one of these ways:
-
-1. If you can generate the SQL query, respond with ONLY this JSON:
-{
-  "type": "sql",
-  "sql": "SELECT ... (the complete SQL query)"
-}
-
-2. If the request is ambiguous (could refer to multiple metrics), respond with ONLY this JSON:
-{
-  "type": "ambiguous",
-  "candidates": ["Candidate interpretation 1", "Candidate interpretation 2"]
-}
-
-3. If you need clarification (market, date range, or other details), ask in plain text. Do NOT return JSON. Just ask a short, natural question like "Which market and date range?" The user will reply and you can continue the conversation.
-
-IMPORTANT: Only return JSON when you are ready to output the final SQL or when the metric is ambiguous. For all other cases, ask in plain text.
-"""
 
 SYSTEM_PREAMBLE = """You are an expert SQL generator for the S&R&A (Search, Recommendation & Ads) team at Shopee.
 
-Given a user question about S&R&A metrics, generate the exact SQL query to answer it.
+Today's date is {today}. When the user mentions a month without a year, default to {current_year}. When the user mentions a month that is in the future relative to today, use the previous year.
+
+Given user questions about S&R&A metrics, generate the exact SQL query to answer them.
 
 RULES:
 - Use ONLY the tables, columns, and filters defined in the metric definitions below.
@@ -41,37 +22,63 @@ RULES:
 - For comparison queries (MoM, YoY), use a CTE with current_period and previous_period, and compute change_rate.
 - If the question is ambiguous (could refer to multiple metrics), return ambiguous candidates instead of guessing.
 
-Available markets: ID, VN, TH, TW, BR, MX, PH, SG, MY, CO, CL
+Available markets: ID, VN, TH, TW, BR, MX, PH, SG, MY, CO, CL, AR
 """
 
-COMPLEX_SQL_PROMPT = """You are an expert SQL generator for S&R&A metrics at Shopee.
+CONVERSATION_INSTRUCTIONS = """
+## Conversation Instructions
 
-You are given a reference SQL snippet for the metric "{metric_name}". Adapt it to the user's specific request.
+You are in a multi-turn conversation. Follow these rules:
 
-RULES:
-- Use the reference snippet as your base — do NOT invent new tables or columns.
-- Only modify filters (date range, market) and column selections as needed.
-- Preserve all joins, CASE WHEN logic, and aggregation patterns from the snippet.
-- Date ranges use: BETWEEN date 'YYYY-MM-DD' AND date 'YYYY-MM-DD'
-- Return ONLY the SQL query, no explanations, no markdown fences.
+OUTPUT FORMAT:
+- When you can generate SQL, respond with ONLY this JSON:
+  {"type": "sql", "sql": "SELECT ..."}
+- When the user asks for multiple metrics, respond with ONLY this JSON:
+  {"type": "sql_list", "queries": [{"metric": "Metric Name", "sql": "SELECT ..."}, ...]}
+- When the query is ambiguous between metrics, respond with ONLY this JSON:
+  {"type": "ambiguous", "candidates": ["Metric A", "Metric B"]}
+- When you need more information (market, date range, etc.), ask in plain text.
+  Be brief: "Which market and date range?"
 
-## Reference SQL Snippet
-```sql
-{snippet_sql}
-```
+IMPORTANT: Only return JSON when you are ready to output the final SQL or when the metric is ambiguous. For all other cases, ask in plain text.
 
-## Available Dimension Values
-{dimension_values_section}
+CONTEXT CARRY-OVER:
+- Remember the metric, market, and date range from earlier turns.
+- If the user says "same for TH", keep the metric and date, change the market.
+- If the user says "change to October", keep the metric and market, change the date.
+- If the user says "break down by channel", switch to the channel breakdown metric for the same market and date.
+- If the user says "what about GMV?", switch to GMV keeping the same market and date.
+
+DERIVED METRICS:
+- For ratio metrics (e.g. Gross Take Rate = Ads Gross Rev / GMV), generate a single SQL using CTEs for each sub-metric and compute the ratio in the final SELECT.
+
+MISSING DIMENSIONS:
+- If the user provides no date range, ask for one. Do NOT generate SQL with empty dates.
+- If the user provides no market, generate for all markets (no grass_region filter, include grass_region in GROUP BY).
+
+CONDITIONAL RULES:
+- Apply the conditional adjustment rules listed below when the market and metric tags match.
+- For example, BR market + net revenue metrics require the SCS credit adjustment.
 """
 
 
 class PromptBuilder:
-    def __init__(self, metrics_dir: str = "metrics", snippets_dir: str = "snippets"):
+    def __init__(
+        self,
+        metrics_dir: str = "metrics",
+        snippets_dir: str = "snippets",
+        rules_dir: str = "rules",
+    ):
         self.metrics_dir = metrics_dir
         self.snippets_dir = snippets_dir
+        self.rules_dir = rules_dir
 
     def build(self) -> str:
-        sections = [SYSTEM_PREAMBLE]
+        today = date.today()
+        sections = [SYSTEM_PREAMBLE.format(
+            today=today.isoformat(),
+            current_year=today.year,
+        )]
 
         metrics_section = self._build_metrics_section()
         if metrics_section:
@@ -81,7 +88,11 @@ class PromptBuilder:
         if snippets_section:
             sections.append("## Reference SQL Examples\n" + snippets_section)
 
-        sections.append("## Output Format\n" + OUTPUT_FORMAT)
+        rules_section = self._build_rules_section()
+        if rules_section:
+            sections.append("## Conditional Adjustment Rules\n" + rules_section)
+
+        sections.append(CONVERSATION_INSTRUCTIONS)
 
         return "\n\n".join(sections)
 
@@ -104,8 +115,12 @@ class PromptBuilder:
         if m.get("aliases"):
             lines.append(f"Aliases: {', '.join(m['aliases'])}")
         lines.append(f"Type: {m['type']}")
+        if m.get("tags"):
+            lines.append(f"Tags: {', '.join(m['tags'])}")
         if m.get("formula"):
             lines.append(f"Formula: {m['formula']}")
+        if m.get("depends_on"):
+            lines.append(f"Depends on: {', '.join(m['depends_on'])}")
         if m.get("aggregation"):
             lines.append(f"Aggregation: {m['aggregation']}")
         for source in m.get("sources", []):
@@ -125,71 +140,61 @@ class PromptBuilder:
         lines.append("")
         return "\n".join(lines)
 
-    def build_complex_sql_prompt(
-        self,
-        snippet_sql: str,
-        metric_name: str,
-        dimension_values: dict[str, list[str]],
-    ) -> str:
-        dim_lines = []
-        for col, values in dimension_values.items():
-            dim_lines.append(f"- {col}: {', '.join(values)}")
-        dim_section = "\n".join(dim_lines) if dim_lines else "None available"
-        return COMPLEX_SQL_PROMPT.format(
-            metric_name=metric_name,
-            snippet_sql=snippet_sql,
-            dimension_values_section=dim_section,
-        )
-
-    def build_assembled_prompt(self, context: AssemblyContext, metric_name: str) -> str:
-        sections = []
-        sections.append('You are an expert SQL generator for S&R&A metrics at Shopee.')
-        today = date.today()
-        sections.append(
-            f"Today's date is {today.isoformat()}. "
-            f"When the user mentions a month without a year, default to {today.year}."
-        )
-        sections.append(
-            f'Assemble the final SQL for metric "{metric_name}" using the base query and adjustments below.'
-        )
-        sections.append('Return ONLY the complete SQL query, no explanations, no markdown fences.')
-
-        sections.append(f"## Base Query\n```sql\n{context.base_snippet}\n```")
-
-        adjustments = []
-        for i, join in enumerate(context.joins, 1):
-            adjustments.append(
-                f"{i}. {join.name} (LEFT JOIN on {', '.join(join.join_keys)})\n"
-                f"```sql\n{join.snippet}\n```"
-            )
-
-        for filt in context.filters:
-            adjustments.append(f"- Additional filter: `{filt}`")
-
-        for col in context.columns:
-            adjustments.append(f"- Additional column: `{col}`")
-
-        for wrap in context.wrappers:
-            adjustments.append(
-                f"- CTE Wrapper: {wrap.name} (priority {wrap.priority})\n"
-                f"```sql\n{wrap.snippet}\n```"
-            )
-
-        if adjustments:
-            sections.append("## Adjustments to Apply\n" + "\n\n".join(adjustments))
-
-        return "\n\n".join(sections)
-
     def _build_snippets_section(self) -> str:
         if not os.path.isdir(self.snippets_dir):
             return ""
         parts = []
-        for fname in sorted(os.listdir(self.snippets_dir)):
-            if not fname.endswith(".sql"):
-                continue
-            path = os.path.join(self.snippets_dir, fname)
-            with open(path) as f:
-                sql = f.read().strip()
-            name = fname.replace(".sql", "").replace("_", " ").title()
-            parts.append(f"### {name}\n```sql\n{sql}\n```\n")
+        for root, _dirs, files in os.walk(self.snippets_dir):
+            for fname in sorted(files):
+                if not fname.endswith(".sql"):
+                    continue
+                path = os.path.join(root, fname)
+                rel_path = os.path.relpath(path, self.snippets_dir)
+                with open(path) as f:
+                    sql = f.read().strip()
+                name = rel_path.replace(".sql", "").replace("_", " ").replace("/", " / ").title()
+                parts.append(f"### {name}\n```sql\n{sql}\n```\n")
         return "\n".join(parts)
+
+    def _build_rules_section(self) -> str:
+        if not os.path.isdir(self.rules_dir):
+            return ""
+        parts = []
+        for fname in sorted(os.listdir(self.rules_dir)):
+            if not fname.endswith((".yaml", ".yml")):
+                continue
+            path = os.path.join(self.rules_dir, fname)
+            with open(path) as f:
+                data = yaml.safe_load(f)
+            if data and "rule" in data:
+                parts.append(self._format_rule(data["rule"]))
+        return "\n".join(parts)
+
+    def _format_rule(self, r: dict) -> str:
+        lines = [f"### {r['name']}"]
+        if r.get("description"):
+            lines.append(r["description"].strip())
+        when = r.get("when", {})
+        conditions = []
+        if "market" in when:
+            conditions.append(f"market = {when['market']}")
+        if "metric_tags" in when:
+            conditions.append(f"metric tags include {when['metric_tags']}")
+        if conditions:
+            lines.append(f"When: {' AND '.join(conditions)}")
+        if r.get("valid_from"):
+            lines.append(f"Valid from: {r['valid_from']}")
+        effect = r.get("effect", {})
+        lines.append(f"Effect: {effect.get('type', 'unknown')}")
+        if effect.get("snippet_file"):
+            snippet_path = effect["snippet_file"]
+            try:
+                with open(snippet_path) as f:
+                    snippet_sql = f.read().strip()
+                lines.append(f"Adjustment SQL:\n```sql\n{snippet_sql}\n```")
+            except FileNotFoundError:
+                lines.append(f"Snippet file: {snippet_path}")
+        if effect.get("join_keys"):
+            lines.append(f"Join keys: {', '.join(effect['join_keys'])}")
+        lines.append("")
+        return "\n".join(lines)
