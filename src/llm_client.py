@@ -22,6 +22,18 @@ class LLMClient:
             raise ValueError("LLM returned empty response")
         return self._parse(raw.strip())
 
+    def chat(self, messages: list[dict]) -> str:
+        """Send a full message list and return the raw response string."""
+        response = self.client.chat.completions.create(
+            model=self.model,
+            temperature=0,
+            messages=messages,
+        )
+        raw = response.choices[0].message.content
+        if raw is None:
+            raise ValueError("LLM returned empty response")
+        return raw.strip()
+
     def call_raw(self, system_prompt: str, user_message: str) -> list:
         """Call LLM and return parsed JSON list (for analyzer use)."""
         response = self.client.chat.completions.create(
