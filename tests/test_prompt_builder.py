@@ -1,5 +1,7 @@
 import os
 import tempfile
+from datetime import date
+
 import yaml
 from src.models import AssemblyContext, JoinAdjustment, WrapAdjustment
 from src.prompt_builder import PromptBuilder
@@ -135,6 +137,14 @@ def test_build_assembled_prompt_with_filter():
     prompt = pb.build_assembled_prompt(ctx, metric_name="Test")
     assert "Additional filter" in prompt or "filter" in prompt.lower()
     assert "seller_type" in prompt
+
+
+def test_assembled_prompt_contains_today_date():
+    pb = PromptBuilder()
+    ctx = AssemblyContext(base_snippet="SELECT 1")
+    prompt = pb.build_assembled_prompt(ctx, metric_name="Test")
+    today = date.today()
+    assert today.isoformat() in prompt or str(today.year) in prompt
 
 
 def test_build_assembled_prompt_no_adjustments():

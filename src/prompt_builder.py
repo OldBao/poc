@@ -1,4 +1,6 @@
 import os
+from datetime import date
+
 import yaml
 
 from src.models import AssemblyContext
@@ -142,6 +144,11 @@ class PromptBuilder:
     def build_assembled_prompt(self, context: AssemblyContext, metric_name: str) -> str:
         sections = []
         sections.append('You are an expert SQL generator for S&R&A metrics at Shopee.')
+        today = date.today()
+        sections.append(
+            f"Today's date is {today.isoformat()}. "
+            f"When the user mentions a month without a year, default to {today.year}."
+        )
         sections.append(
             f'Assemble the final SQL for metric "{metric_name}" using the base query and adjustments below.'
         )
