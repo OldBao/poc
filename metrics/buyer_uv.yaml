@@ -3,12 +3,14 @@ metric:
   aliases: ["buyer count", "买家数", "buyer uv"]
   tags: [volume]
   type: simple
-  aggregation: avg
+  aggregation_template: avg_rollup
   unit: count
   sources:
     - id: buyer_uv
       layer: dwd
       table: traffic_omni_oa.dwd_order_item_atc_journey_di__reg_sensitive_live
+      golden: true
+      snippet: snippets/layer1/buyer_uv.sql
       columns:
         value: "count(distinct case when gmv_usd * atc_prorate * first_touchpoint_item > 0 then user_id end)"
         date: grass_date

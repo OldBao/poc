@@ -3,12 +3,14 @@ metric:
   aliases: ["commission", "佣金", "commission fee"]
   tags: [revenue, cost]
   type: simple
-  aggregation: avg
+  aggregation_template: avg_rollup
   unit: usd
   sources:
     - id: commission
       layer: dwd
       table: mp_order.dwd_order_item_all_ent_df__reg_s0_live
+      golden: true
+      snippet: snippets/layer1/commission_fee.sql
       columns:
         value: "sum(commission_fee_usd)"
         date: "cast(create_datetime as date)"

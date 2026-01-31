@@ -2,9 +2,21 @@ metric:
   name: Net Ads Rev
   aliases: ["net ads revenue", "净广告收入", "net ads rev"]
   tags: [revenue, net, ads]
-  type: complex
-  snippet_file: snippets/net_ads_rev.sql
+  type: simple
+  aggregation_template: avg_rollup
   unit: usd
+  sources:
+    - id: net_ads_rev_paidads
+      layer: dws
+      table: mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+      golden: true
+      snippet: snippets/layer1/net_ads_rev.sql
+      columns:
+        value: net_ads_rev_usd
+        date: grass_date
+        region: grass_region
+      filters:
+        - "tz_type = 'regional'"
   dimensions:
     required: [market, date_range]
     optional: []

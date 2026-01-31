@@ -4,7 +4,19 @@ metric:
             "search ads ratio", "DD ads ratio"]
   tags: [revenue, ads, efficiency]
   type: complex
-  snippet_file: snippets/ads_rev_by_channel.sql
+  aggregation_template: avg_rollup
+  sources:
+    - id: ads_rev_by_channel
+      layer: dws
+      table: mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+      golden: true
+      snippet: snippets/layer1/ads_rev_by_channel.sql
+      columns:
+        value: ads_rev_usd
+        date: grass_date
+        region: grass_region
+      filters:
+        - "tz_type = 'regional'"
   sub_metrics:
     - search_ads_rev_ratio
     - dd_ads_rev_ratio

@@ -3,18 +3,33 @@ metric:
   aliases: ["gross merchandise value", "交易额", "gmv"]
   tags: [revenue, gross]
   type: simple
-  aggregation: avg
+  aggregation_template: avg_rollup
   unit: usd
   sources:
     - id: gmv_from_ads
       layer: dws
       table: mp_paidads.ads_advertise_take_rate_v2_1d__reg_s0_live
+      golden: false
+      snippet: snippets/layer1/gmv__mp_paidads.sql
       columns:
         value: "sum(distinct platform_gmv_excl_testorder)"
         date: grass_date
         region: grass_region
       filters:
         - "tz_type = 'regional'"
+      use_when:
+        granularity: [platform]
+    - id: gmv_from_order
+      layer: dwd
+      table: mp_order.dwd_order_item_all_ent_df__reg_s0_live
+      golden: true
+      snippet: snippets/layer1/gmv__mp_order.sql
+      columns:
+        value: "sum(gmv_usd)"
+        date: grass_date
+        region: grass_region
+      filters:
+        - "tz_type = 'local'"
       use_when:
         granularity: [platform]
   dimensions:

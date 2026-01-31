@@ -4,7 +4,19 @@ metric:
             "search order ratio", "DD order ratio", "YMAL order ratio"]
   tags: [volume, efficiency]
   type: complex
-  snippet_file: snippets/order_by_channel.sql
+  aggregation_template: avg_rollup
+  sources:
+    - id: order_by_channel
+      layer: dws
+      table: dev_video_bi.sr_okr_table_metric_dws
+      golden: true
+      snippet: snippets/layer1/order_by_channel.sql
+      columns:
+        value: order_cnt_login_user_first_lead
+        date: grass_date
+        region: grass_region
+      filters:
+        - "tz_type = 'regional'"
   sub_metrics:
     - global_search_order_ratio
     - dd_order_ratio

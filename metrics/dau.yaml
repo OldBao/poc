@@ -3,13 +3,15 @@ metric:
   aliases: ["daily active users", "platform DAU", "日活"]
   tags: [volume]
   type: simple
-  aggregation: avg
+  aggregation_template: avg_rollup
   unit: count
 
   sources:
     - id: platform_dau
       layer: dws
       table: traffic.shopee_traffic_dws_platform_active_churn_nd__reg_s0_live
+      golden: true
+      snippet: snippets/layer1/dau.sql
       columns:
         value: a1
         date: grass_date
