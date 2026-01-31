@@ -52,6 +52,44 @@ def test_unknown_table_detected(registry, value_index):
     assert any("table" in e.lower() for e in errors)
 
 
+def test_validator_extracts_tables_from_layered_snippets(tmp_path):
+    """Validator finds tables from source-level snippet files."""
+    from unittest.mock import MagicMock
+
+    metrics_dir = tmp_path / "metrics"
+    metrics_dir.mkdir()
+    snippet_path = str(tmp_path / "snippets" / "layer1" / "test.sql")
+    (metrics_dir / "test.yaml").write_text(f"""
+metric:
+  name: Test
+  type: simple
+  sources:
+    - id: src1
+      table: db.known_table
+      snippet: {snippet_path}
+      columns: {{value: v, date: d, region: r}}
+  dimensions:
+    required: []
+    optional: []
+""")
+
+    snippets_dir = tmp_path / "snippets" / "layer1"
+    snippets_dir.mkdir(parents=True)
+    (snippets_dir / "test.sql").write_text(
+        "SELECT v FROM db.snippet_table WHERE d BETWEEN date '2025-01-01' AND date '2025-01-31'"
+    )
+
+    reg = MetricRegistry(metrics_dir=str(metrics_dir))
+    reg.load()
+    vi = MagicMock()
+    vi.get_all_values_for_column.return_value = set()
+
+    validator = SQLValidator(registry=reg, value_index=vi)
+
+    assert "db.known_table" in validator._known_tables
+    assert "db.snippet_table" in validator._known_tables
+
+
 def test_invalid_filter_value_detected(registry, value_index):
     sql = """
     SELECT grass_region, avg(ads_rev_usd)
