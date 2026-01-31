@@ -39,6 +39,8 @@ class MetricSource:
     columns: dict
     filters: list[str] = field(default_factory=list)
     use_when: dict = field(default_factory=dict)
+    golden: bool = False
+    snippet: Optional[str] = None
 
 
 @dataclass
@@ -57,13 +59,26 @@ class MetricDefinition:
     owner: Optional[str] = None
     notes: Optional[str] = None
     tags: list[str] = field(default_factory=list)
+    aggregation_template: Optional[str] = None
+    composition: Optional[dict] = None
     atomic_source: Optional[AtomicSource] = None
     atomic_columns: dict[str, AtomicColumn] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict) -> "MetricDefinition":
         m = data["metric"]
-        sources = [MetricSource(**s) for s in m.get("sources", [])]
+        sources = []
+        for s in m.get("sources", []):
+            sources.append(MetricSource(
+                id=s.get("id", ""),
+                layer=s.get("layer", ""),
+                table=s["table"],
+                columns=s.get("columns", {}),
+                filters=s.get("filters", []),
+                use_when=s.get("use_when", {}),
+                golden=s.get("golden", False),
+                snippet=s.get("snippet"),
+            ))
 
         # Parse atomic source (singular "source" block)
         atomic_source = None
@@ -102,6 +117,8 @@ class MetricDefinition:
             owner=m.get("owner"),
             notes=m.get("notes"),
             tags=m.get("tags", []),
+            aggregation_template=m.get("aggregation_template"),
+            composition=m.get("composition"),
             atomic_source=atomic_source,
             atomic_columns=atomic_columns,
         )
