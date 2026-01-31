@@ -5,9 +5,15 @@ Runs against live OpenAI API. Mark with pytest -m live.
 import os
 import pytest
 import yaml
-from src.agent import Agent, parse_response
+from src.agent import Agent
 
 TESTS_DIR = os.path.dirname(__file__)
+
+# Map test-case expected_type to what Agent._parse_response returns
+TYPE_MAP = {
+    "sql": "sql",
+    "ambiguous": "clarification",
+}
 
 
 def load_test_cases():
@@ -27,11 +33,9 @@ test_cases = load_test_cases()
 )
 def test_regression(case):
     agent = Agent(metrics_dir="metrics", snippets_dir="snippets")
-    raw = agent.start(case["question"])
-    rtype, data = parse_response(raw)
-    result = data if isinstance(data, dict) else {"type": "text", "message": data}
+    result = agent.ask(case["question"])
 
-    expected_type = case["expected_type"]
+    expected_type = TYPE_MAP.get(case["expected_type"], case["expected_type"])
     assert result.get("type") == expected_type, (
         f"Expected type '{expected_type}', got '{result.get('type')}'. "
         f"Full response: {result}"
@@ -50,7 +54,7 @@ def test_regression(case):
                 f"Got SQL:\n{sql}"
             )
 
-    elif expected_type == "ambiguous":
+    elif expected_type == "clarification" and case["expected_type"] == "ambiguous":
         candidates = " ".join(result.get("candidates", []))
         for keyword in case.get("expected_candidates_contain", []):
             assert keyword.lower() in candidates.lower(), (

@@ -20,7 +20,11 @@ RULES:
 - Date ranges use: BETWEEN date 'YYYY-MM-DD' AND date 'YYYY-MM-DD'
 - When the user says a month name like "Nov" or "November 2025", infer the full date range (e.g., 2025-11-01 to 2025-11-30). Do NOT ask for clarification on date ranges when a month is given.
 - For comparison queries (MoM, YoY), use a CTE with current_period and previous_period, and compute change_rate.
-- If the question is ambiguous (could refer to multiple metrics), return ambiguous candidates instead of guessing.
+  The later date is current_period, the earlier date is previous_period.
+  Example: "Compare X between October and November" → November = current_period, October = previous_period.
+- If the question could match multiple metrics (e.g. "revenue" matches both "Ads Gross Rev" and "Net Ads Rev"),
+  ALWAYS return {{"type": "ambiguous", "candidates": [...]}} FIRST, even if market/date are also missing.
+  Resolve metric ambiguity before asking for dimensions.
 
 Available markets: ID, VN, TH, TW, BR, MX, PH, SG, MY, CO, CL, AR
 """
@@ -51,6 +55,11 @@ CONTEXT CARRY-OVER:
 
 DERIVED METRICS:
 - For ratio metrics (e.g. Gross Take Rate = Ads Gross Rev / GMV), generate a single SQL using CTEs for each sub-metric and compute the ratio in the final SELECT.
+
+METRIC AMBIGUITY (highest priority):
+- If the question could match multiple metrics (e.g. "revenue" matches both "Ads Gross Rev" and "Net Ads Rev"),
+  ALWAYS return {"type": "ambiguous", "candidates": [...]} FIRST, even if market/date are also missing.
+  Resolve metric ambiguity before asking for any missing dimensions.
 
 MISSING DIMENSIONS:
 - If the user provides no date range, ask for one. Do NOT generate SQL with empty dates.
