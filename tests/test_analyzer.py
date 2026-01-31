@@ -1,5 +1,14 @@
-from unittest.mock import patch, MagicMock
+import json
+from unittest.mock import MagicMock
 from src.importer.analyzer import SQLAnalyzer
+from src.llm_backend import strip_fences
+
+
+def _make_backend(response_text: str):
+    """Create a mock backend whose generate_json_list returns parsed JSON."""
+    backend = MagicMock()
+    backend.generate_json_list.return_value = json.loads(strip_fences(response_text))
+    return backend
 
 
 def test_analyzer_extracts_metrics_from_sql():
@@ -8,9 +17,7 @@ def test_analyzer_extracts_metrics_from_sql():
     where grass_date between date '2025-11-01' and date '2025-11-30' and tz_type = 'local'
     """
 
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = '''```json
+    response = '''```json
     [
         {
             "name": "DAU",
@@ -26,13 +33,9 @@ def test_analyzer_extracts_metrics_from_sql():
     ]
     ```'''
 
-    with patch("openai.OpenAI") as MockOpenAI:
-        mock_client = MagicMock()
-        MockOpenAI.return_value = mock_client
-        mock_client.chat.completions.create.return_value = mock_response
-
-        analyzer = SQLAnalyzer()
-        results = analyzer.analyze_sql(sample_sql)
+    backend = _make_backend(response)
+    analyzer = SQLAnalyzer(backend=backend)
+    results = analyzer.analyze_sql(sample_sql)
 
     assert len(results) >= 1
     assert results[0]["name"] == "DAU"
@@ -42,9 +45,7 @@ def test_analyzer_extracts_metrics_from_sql():
 def test_analyzer_extracts_from_doc():
     sample_doc = "DAU means daily active users. We compute it as avg(a1) from the platform active churn table."
 
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = '''```json
+    response = '''```json
     [
         {
             "name": "DAU",
@@ -55,13 +56,9 @@ def test_analyzer_extracts_from_doc():
     ]
     ```'''
 
-    with patch("openai.OpenAI") as MockOpenAI:
-        mock_client = MagicMock()
-        MockOpenAI.return_value = mock_client
-        mock_client.chat.completions.create.return_value = mock_response
-
-        analyzer = SQLAnalyzer()
-        results = analyzer.analyze_doc(sample_doc)
+    backend = _make_backend(response)
+    analyzer = SQLAnalyzer(backend=backend)
+    results = analyzer.analyze_doc(sample_doc)
 
     assert len(results) >= 1
     assert results[0]["name"] == "DAU"

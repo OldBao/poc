@@ -2,14 +2,15 @@
 
 ## Overview
 
-LLM-based SQL generation for S&R&A metrics. Natural language → SQL via GPT-4o, guided by YAML metric definitions and reference SQL snippets.
+LLM-based SQL generation for S&R&A metrics. Natural language → SQL via configurable LLM backend (Claude Code or OpenAI), guided by YAML metric definitions and reference SQL snippets.
 
 ## Quick Start
 
 ```bash
 source ~/.zshrc 2>/dev/null || true   # loads OPENAI_API_KEY, OPENAI_BASE_URL
 pip install -r requirements.txt
-python -m src.agent                   # interactive CLI
+python -m src.agent                   # interactive CLI (default: claude backend)
+python -m src.agent --backend openai  # use OpenAI backend
 ```
 
 ## Testing
@@ -76,7 +77,7 @@ This prevents confusion when multiple features are in flight.
 - **SQLValidator** (`src/validator.py`): Validates LLM-generated SQL (syntax, tables, filter values). Extracts allowed tables from both `sources:` blocks and `snippet_file` SQL.
 - **MetricRegistry** (`src/registry.py`): Loads YAML metric definitions into `MetricDefinition` models
 - **ValueIndex** (`src/value_index.py`): SQLite index of valid dimension values for filter validation
-- **LLMClient** (`src/llm_client.py`): OpenAI API wrapper (supports custom base_url for Ollama/Shopee Compass)
+- **LLMBackend** (`src/llm_backend.py`): Pluggable LLM backend abstraction — `OpenAIBackend` (OpenAI/Ollama) and `ClaudeCodeBackend` (Claude Code SDK)
 
 ## Adding Metrics
 
