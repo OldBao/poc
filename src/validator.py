@@ -17,6 +17,28 @@ class SQLValidator:
         for m in self.registry.metrics:
             for s in m.sources:
                 tables.add(s.table.lower())
+            # Also extract tables from snippet SQL files
+            if m.snippet_file:
+                tables.update(self._tables_from_snippet(m.snippet_file))
+        return tables
+
+    def _tables_from_snippet(self, snippet_path: str) -> set[str]:
+        """Parse a snippet SQL file and extract schema-qualified table names."""
+        tables = set()
+        try:
+            with open(snippet_path) as f:
+                sql = f.read()
+            # Strip Jinja2 template tags so sqlglot can parse
+            cleaned = re.sub(r"\{[%{].*?[%}]\}", "''", sql)
+            for statement in sqlglot.parse(cleaned):
+                if statement is None:
+                    continue
+                for table in statement.find_all(exp.Table):
+                    full_name = table.sql().lower().strip('"').strip("'")
+                    if "." in full_name:
+                        tables.add(full_name)
+        except Exception:
+            pass
         return tables
 
     def validate(self, sql: str) -> list[str]:
