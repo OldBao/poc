@@ -17,7 +17,9 @@ class SQLValidator:
         for m in self.registry.metrics:
             for s in m.sources:
                 tables.add(s.table.lower())
-            # Also extract tables from snippet SQL files
+                if s.snippet:
+                    tables.update(self._tables_from_snippet(s.snippet))
+            # Legacy: metric-level snippet_file
             if m.snippet_file:
                 tables.update(self._tables_from_snippet(m.snippet_file))
         return tables

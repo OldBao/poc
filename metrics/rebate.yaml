@@ -3,12 +3,14 @@ metric:
   aliases: ["total rebate", "返利", "rebate"]
   tags: [cost]
   type: simple
-  aggregation: avg
+  aggregation_template: avg_rollup
   unit: usd
   sources:
     - id: rebate
       layer: dwd
       table: mp_order.dwd_order_item_all_ent_df__reg_s0_live
+      golden: true
+      snippet: snippets/layer1/rebate.sql
       columns:
         value: "sum(sv_coin_earn_by_shopee_amt_usd) + sum(pv_coin_earn_by_shopee_amt_usd) + sum(actual_shipping_rebate_by_shopee_amt_usd) + sum(pv_rebate_by_shopee_amt_usd) + sum(sv_rebate_by_shopee_amt_usd) + sum(item_rebate_by_shopee_amt_usd) + sum(card_rebate_by_shopee_amt_usd)"
         date: "cast(create_datetime as date)"

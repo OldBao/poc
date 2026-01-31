@@ -17,6 +17,7 @@ class Agent:
         value_index_path: str = "value_index.db",
         model: str = "gpt-4o",
         base_url: str | None = None,
+        api_key: str | None = None,
         llm_client: Optional[LLMClient] = None,
     ):
         self.registry = MetricRegistry(metrics_dir=metrics_dir)
@@ -25,7 +26,7 @@ class Agent:
         self.value_index = ValueIndex(value_index_path)
         self.value_index.init_db()
 
-        self.llm = llm_client or LLMClient(model=model, base_url=base_url)
+        self.llm = llm_client or LLMClient(model=model, base_url=base_url, api_key=api_key)
 
         self.prompt_builder = PromptBuilder(
             metrics_dir=metrics_dir,
@@ -109,13 +110,20 @@ def main():
     parser.add_argument("--model", default="gpt-4o", help="LLM model name (default: gpt-4o)")
     parser.add_argument("--base-url", default=None, help="LLM API base URL (e.g. http://localhost:11434/v1 for Ollama)")
     parser.add_argument("--ollama", action="store_true", help="Shortcut for --base-url http://localhost:11434/v1 --model qwen2.5:7b")
+    parser.add_argument("--gemini", action="store_true", help="Shortcut for Gemini API with gemini-2.0-flash")
+    parser.add_argument("--api-key", default=None, help="API key (overrides env var)")
     args = parser.parse_args()
 
     model = args.model
     base_url = args.base_url
+    api_key = args.api_key
     if args.ollama:
         base_url = base_url or "http://localhost:11434/v1"
         model = args.model if args.model != "gpt-4o" else "qwen2.5:7b"
+    elif args.gemini:
+        base_url = base_url or "https://generativelanguage.googleapis.com/v1beta/openai/"
+        model = args.model if args.model != "gpt-4o" else "gemini-2.0-flash"
+        api_key = api_key or os.environ.get("GEMINI_API_KEY")
 
     # Explicitly load emacs bindings to ensure Ctrl+A, Ctrl+E, etc. work
     emacs_bindings = load_emacs_bindings()
@@ -128,7 +136,7 @@ def main():
     history_file = os.path.expanduser("~/.sra_agent_history")
     history = FileHistory(history_file)
 
-    agent = Agent(model=model, base_url=base_url)
+    agent = Agent(model=model, base_url=base_url, api_key=api_key)
 
     print("\033[1;36mS&R&A Metric Agent\033[0m (type 'quit' to exit, 'reset' for new conversation)")
     print("\033[90m" + "-" * 50 + "\033[0m")

@@ -5,6 +5,10 @@ metric:
   type: derived
   formula: "ads_gmv / ads_gross_rev"
   depends_on: ["Ads Gross Rev"]
+  composition:
+    template: ratio
+    numerator: ads_gmv
+    denominator: ads_gross_rev
   unit: ratio
   dimensions:
     required: [market, date_range]

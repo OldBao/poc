@@ -5,6 +5,10 @@ metric:
   type: derived
   formula: "net_ads_rev / gmv"
   depends_on: ["Net Ads Rev", "GMV"]
+  composition:
+    template: ratio
+    numerator: Net Ads Rev
+    denominator: GMV
   unit: ratio
   dimensions:
     required: [market, date_range]
