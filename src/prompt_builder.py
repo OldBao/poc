@@ -95,7 +95,7 @@ class PromptBuilder:
 
         snippets_section = self._build_snippets_section()
         if snippets_section:
-            sections.append("## Reference SQL Examples\n" + snippets_section)
+            sections.append(snippets_section)
 
         rules_section = self._build_rules_section()
         if rules_section:
@@ -130,15 +130,27 @@ class PromptBuilder:
             lines.append(f"Formula: {m['formula']}")
         if m.get("depends_on"):
             lines.append(f"Depends on: {', '.join(m['depends_on'])}")
-        if m.get("aggregation"):
+        if m.get("aggregation_template"):
+            lines.append(f"Aggregation template: {m['aggregation_template']}")
+        elif m.get("aggregation"):
             lines.append(f"Aggregation: {m['aggregation']}")
         for source in m.get("sources", []):
-            lines.append(f"Source table: {source['table']}")
+            golden_tag = " (golden)" if source.get("golden") else ""
+            lines.append(f"Source table: {source['table']}{golden_tag}")
             lines.append(f"  Columns: {source['columns']}")
             if source.get("filters"):
                 lines.append(f"  Filters: {source['filters']}")
+            if source.get("snippet"):
+                lines.append(f"  Snippet: {source['snippet']}")
             if source.get("use_when"):
                 lines.append(f"  Use when: {source['use_when']}")
+        if m.get("composition"):
+            comp = m["composition"]
+            lines.append(f"Composition: template={comp.get('template')}")
+            if comp.get("numerator"):
+                lines.append(f"  Numerator: {comp['numerator']}")
+            if comp.get("denominator"):
+                lines.append(f"  Denominator: {comp['denominator']}")
         if m.get("snippet_file"):
             lines.append(f"Snippet: {m['snippet_file']}")
         if m.get("notes"):
@@ -152,6 +164,53 @@ class PromptBuilder:
     def _build_snippets_section(self) -> str:
         if not os.path.isdir(self.snippets_dir):
             return ""
+
+        layer1_dir = os.path.join(self.snippets_dir, "layer1")
+        layer2_dir = os.path.join(self.snippets_dir, "layer2")
+        layer3_dir = os.path.join(self.snippets_dir, "layer3")
+
+        if os.path.isdir(layer1_dir):
+            sections = []
+            sections.append(self._build_layer_section(
+                layer1_dir, "Source Fragments (Layer 1)",
+                "Daily-grain queries from specific tables. Use these as building blocks.",
+            ))
+            if os.path.isdir(layer2_dir):
+                sections.append(self._build_layer_section(
+                    layer2_dir, "Aggregation Templates (Layer 2)",
+                    "Patterns for rolling up daily-grain data into periods. Wrap Layer 1 fragments.",
+                ))
+            if os.path.isdir(layer3_dir):
+                sections.append(self._build_layer_section(
+                    layer3_dir, "Composition Templates (Layer 3)",
+                    "Patterns for combining multiple metrics via CTEs.",
+                ))
+            adj_dir = os.path.join(self.snippets_dir, "adjustments")
+            if os.path.isdir(adj_dir):
+                sections.append(self._build_layer_section(
+                    adj_dir, "Adjustment Snippets",
+                    "Market-specific adjustments to apply when conditions match.",
+                ))
+            return "\n\n".join(s for s in sections if s)
+
+        # Fallback: flat snippet listing (backwards compat)
+        return "## Reference SQL Examples\n" + self._build_flat_snippets()
+
+    def _build_layer_section(self, directory: str, title: str, description: str) -> str:
+        parts = []
+        for fname in sorted(os.listdir(directory)):
+            if not fname.endswith(".sql"):
+                continue
+            path = os.path.join(directory, fname)
+            with open(path) as f:
+                sql = f.read().strip()
+            name = fname.replace(".sql", "").replace("_", " ").title()
+            parts.append(f"### {name}\n```sql\n{sql}\n```\n")
+        if not parts:
+            return ""
+        return f"## {title}\n{description}\n\n" + "\n".join(parts)
+
+    def _build_flat_snippets(self) -> str:
         parts = []
         for root, _dirs, files in os.walk(self.snippets_dir):
             for fname in sorted(files):
