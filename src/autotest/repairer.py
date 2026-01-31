@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass, field
 from typing import Optional
-from src.llm_client import LLMClient
+from src.llm_backend import LLMBackend
 
 
 @dataclass
@@ -64,11 +64,20 @@ Keep changes minimal. Only modify what's necessary to fix this specific failure.
 class Repairer:
     def __init__(
         self,
-        llm_client: LLMClient,
+        backend: LLMBackend | None = None,
         metrics_dir: str = "metrics",
         snippets_dir: str = "snippets",
+        # legacy compat
+        llm_client=None,
     ):
-        self.llm = llm_client
+        if llm_client is not None:
+            self.llm = llm_client
+            self._use_legacy = True
+        elif backend is not None:
+            self.llm = backend
+            self._use_legacy = False
+        else:
+            raise ValueError("Either 'backend' or 'llm_client' must be provided")
         self.metrics_dir = metrics_dir
         self.snippets_dir = snippets_dir
 
@@ -91,10 +100,16 @@ class Repairer:
             failure_context=failure_context,
         )
 
-        result = self.llm.call(
-            system_prompt=prompt,
-            user_message="Propose a repair plan.",
-        )
+        if self._use_legacy:
+            result = self.llm.call(
+                system_prompt=prompt,
+                user_message="Propose a repair plan.",
+            )
+        else:
+            result = self.llm.generate_json(
+                system_prompt=prompt,
+                user_message="Propose a repair plan.",
+            )
 
         actions = [RepairAction(**a) for a in result.get("actions", [])]
         return RepairPlan(

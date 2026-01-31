@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
-from src.llm_client import LLMClient
+from src.llm_backend import LLMBackend
 from src.query_service import QueryResult
 
 
@@ -36,18 +35,29 @@ If match is true, differences should be an empty list.
 
 
 class StructuralComparator:
-    def __init__(self, llm_client: LLMClient):
-        self.llm = llm_client
+    def __init__(self, backend: LLMBackend = None, *, llm_client=None):
+        if llm_client is not None:
+            self.llm = llm_client
+            self._use_legacy = True
+        else:
+            self.llm = backend
+            self._use_legacy = False
 
     def compare(self, expected_sql: str, generated_sql: str) -> CompareResult:
         user_message = (
             f"## Expected SQL\n```sql\n{expected_sql}\n```\n\n"
             f"## Generated SQL\n```sql\n{generated_sql}\n```"
         )
-        result = self.llm.call(
-            system_prompt=STRUCTURAL_COMPARE_PROMPT,
-            user_message=user_message,
-        )
+        if self._use_legacy:
+            result = self.llm.call(
+                system_prompt=STRUCTURAL_COMPARE_PROMPT,
+                user_message=user_message,
+            )
+        else:
+            result = self.llm.generate_json(
+                system_prompt=STRUCTURAL_COMPARE_PROMPT,
+                user_message=user_message,
+            )
         return CompareResult(
             match=result.get("match", False),
             differences=result.get("differences", []),

@@ -1,4 +1,4 @@
-from src.llm_client import LLMClient
+from src.llm_backend import LLMBackend, OpenAIBackend
 
 SQL_ANALYZER_PROMPT = """You are an expert SQL analyst. Given an ETL SQL query, extract all metrics defined in it.
 
@@ -30,11 +30,11 @@ Return ONLY a JSON array. No explanations."""
 
 
 class SQLAnalyzer:
-    def __init__(self, model: str = "gpt-4o"):
-        self.llm = LLMClient(model=model)
+    def __init__(self, backend: LLMBackend | None = None, model: str = "gpt-4o"):
+        self.backend = backend or OpenAIBackend(model=model)
 
     def analyze_sql(self, sql: str) -> list[dict]:
-        return self.llm.call_raw(SQL_ANALYZER_PROMPT, sql)
+        return self.backend.generate_json_list(SQL_ANALYZER_PROMPT, sql)
 
     def analyze_doc(self, doc_text: str) -> list[dict]:
-        return self.llm.call_raw(DOC_ANALYZER_PROMPT, doc_text)
+        return self.backend.generate_json_list(DOC_ANALYZER_PROMPT, doc_text)

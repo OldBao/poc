@@ -2,7 +2,7 @@ import argparse
 import sys
 
 from src.agent import Agent
-from src.llm_client import LLMClient
+from src.llm_backend import create_backend
 from src.autotest.loader import BenchmarkLoader
 from src.autotest.comparator import StructuralComparator, ResultComparator
 from src.autotest.repairer import Repairer
@@ -35,6 +35,10 @@ def parse_args(argv=None):
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Show repair plans without applying changes",
+    )
+    parser.add_argument(
+        "--backend", default="openai", choices=["openai", "claude"],
+        help="LLM backend (default: openai)",
     )
     return parser.parse_args(argv)
 
@@ -80,12 +84,12 @@ def main():
     print(f"Running {len(cases)} benchmark case(s)...")
 
     # Set up components
-    llm = LLMClient()
-    agent = Agent(llm_client=llm)
-    structural = StructuralComparator(llm_client=llm)
+    backend = create_backend(args.backend)
+    agent = Agent(backend=backend)
+    structural = StructuralComparator(backend=backend)
     result_comp = ResultComparator()
     query_service = QueryService()  # TODO: configure base_url and token
-    repairer = Repairer(llm_client=llm)
+    repairer = Repairer(backend=backend)
 
     runner = Runner(
         agent=agent,

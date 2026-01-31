@@ -1,7 +1,7 @@
 import json
 from typing import Optional
 
-from src.llm_client import LLMClient
+from src.llm_backend import LLMBackend, OpenAIBackend, strip_fences
 from src.prompt_builder import PromptBuilder
 from src.validator import SQLValidator
 from src.registry import MetricRegistry
@@ -15,10 +15,12 @@ class Agent:
         snippets_dir: str = "snippets",
         rules_dir: str = "rules",
         value_index_path: str = "value_index.db",
+        backend: Optional[LLMBackend] = None,
+        # legacy compat — ignored when backend is provided
         model: str = "gpt-4o",
         base_url: str | None = None,
         api_key: str | None = None,
-        llm_client: Optional[LLMClient] = None,
+        llm_client=None,
     ):
         self.registry = MetricRegistry(metrics_dir=metrics_dir)
         self.registry.load()
@@ -26,7 +28,13 @@ class Agent:
         self.value_index = ValueIndex(value_index_path)
         self.value_index.init_db()
 
-        self.llm = llm_client or LLMClient(model=model, base_url=base_url, api_key=api_key)
+        # Resolve backend: explicit backend > legacy llm_client wrapper > default OpenAI
+        if backend is not None:
+            self.backend = backend
+        elif llm_client is not None:
+            self.backend = _LegacyLLMClientAdapter(llm_client)
+        else:
+            self.backend = OpenAIBackend(model=model, base_url=base_url, api_key=api_key)
 
         self.prompt_builder = PromptBuilder(
             metrics_dir=metrics_dir,
@@ -44,13 +52,20 @@ class Agent:
         ]
 
     def ask(self, question: str) -> dict:
-        self.messages.append({"role": "user", "content": question})
-        raw = self.llm.chat(self.messages)
-        self.messages.append({"role": "assistant", "content": raw})
+        # For backends that support multi-turn (OpenAIBackend), accumulate history
+        if isinstance(self.backend, (OpenAIBackend, _LegacyLLMClientAdapter)):
+            self.messages.append({"role": "user", "content": question})
+            raw = self.backend.chat(self.messages)
+            self.messages.append({"role": "assistant", "content": raw})
+        else:
+            # Single-turn (Claude Code and others): send system + user directly
+            self.messages.append({"role": "user", "content": question})
+            raw = self.backend.generate(self.system_prompt, question)
+            self.messages.append({"role": "assistant", "content": raw})
         return self._parse_response(raw)
 
     def _parse_response(self, raw: str) -> dict:
-        stripped = LLMClient._strip_fences(raw)
+        stripped = strip_fences(raw)
         try:
             parsed = json.loads(stripped)
             if isinstance(parsed, dict):
@@ -85,6 +100,26 @@ class Agent:
         self.messages = [self.messages[0]]
 
 
+class _LegacyLLMClientAdapter:
+    """Thin adapter so existing tests passing a mock llm_client still work."""
+
+    def __init__(self, llm_client):
+        self._llm = llm_client
+
+    def generate(self, system_prompt: str, user_message: str) -> str:
+        return self._llm.chat([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ])
+
+    def chat(self, messages: list[dict]) -> str:
+        return self._llm.chat(messages)
+
+    def generate_json(self, system_prompt: str, user_message: str) -> dict:
+        raw = self.generate(system_prompt, user_message)
+        return json.loads(strip_fences(raw))
+
+
 def _print_sql(sql: str) -> None:
     """Print SQL with syntax highlighting if pygments is available."""
     try:
@@ -105,25 +140,23 @@ def main():
     from prompt_toolkit.key_binding.bindings.emacs import load_emacs_bindings
     import argparse
     import os
+    from src.llm_backend import create_backend
 
     parser = argparse.ArgumentParser(description="S&R&A Metric Agent")
-    parser.add_argument("--model", default="gpt-4o", help="LLM model name (default: gpt-4o)")
-    parser.add_argument("--base-url", default=None, help="LLM API base URL (e.g. http://localhost:11434/v1 for Ollama)")
-    parser.add_argument("--ollama", action="store_true", help="Shortcut for --base-url http://localhost:11434/v1 --model qwen2.5:7b")
-    parser.add_argument("--gemini", action="store_true", help="Shortcut for Gemini API with gemini-2.0-flash")
-    parser.add_argument("--api-key", default=None, help="API key (overrides env var)")
+    parser.add_argument(
+        "--backend", default="claude", choices=["openai", "claude"],
+        help="LLM backend (default: claude)",
+    )
+    parser.add_argument("--model", default="gpt-4o", help="Model name for openai backend (default: gpt-4o)")
+    parser.add_argument("--base-url", default=None, help="API base URL for openai backend")
+    parser.add_argument("--api-key", default=None, help="API key for openai backend")
     args = parser.parse_args()
 
-    model = args.model
-    base_url = args.base_url
-    api_key = args.api_key
-    if args.ollama:
-        base_url = base_url or "http://localhost:11434/v1"
-        model = args.model if args.model != "gpt-4o" else "qwen2.5:7b"
-    elif args.gemini:
-        base_url = base_url or "https://generativelanguage.googleapis.com/v1beta/openai/"
-        model = args.model if args.model != "gpt-4o" else "gemini-2.0-flash"
-        api_key = api_key or os.environ.get("GEMINI_API_KEY")
+    backend_kwargs = {}
+    if args.backend == "openai":
+        backend_kwargs = dict(model=args.model, base_url=args.base_url, api_key=args.api_key)
+
+    backend = create_backend(args.backend, **backend_kwargs)
 
     # Explicitly load emacs bindings to ensure Ctrl+A, Ctrl+E, etc. work
     emacs_bindings = load_emacs_bindings()
@@ -136,9 +169,10 @@ def main():
     history_file = os.path.expanduser("~/.sra_agent_history")
     history = FileHistory(history_file)
 
-    agent = Agent(model=model, base_url=base_url, api_key=api_key)
+    agent = Agent(backend=backend)
 
     print("\033[1;36mS&R&A Metric Agent\033[0m (type 'quit' to exit, 'reset' for new conversation)")
+    print(f"\033[90mbackend: {args.backend}\033[0m")
     print("\033[90m" + "-" * 50 + "\033[0m")
 
     while True:
