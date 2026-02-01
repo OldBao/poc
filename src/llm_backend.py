@@ -81,31 +81,23 @@ class OpenAIBackend(LLMBackend):
 
 
 class ClaudeCodeBackend(LLMBackend):
-    """Backend using the Claude Code SDK (single-turn only)."""
-
-    def __init__(self):
-        from claude_code_sdk import query as claude_query, ClaudeCodeOptions
-
-        self._query = claude_query
-        self._options_cls = ClaudeCodeOptions
+    """Backend that shells out to the `claude` CLI (single-turn only)."""
 
     def generate(self, system_prompt: str, user_message: str) -> str:
-        import asyncio
+        import subprocess
 
-        return asyncio.run(self._agenerate(system_prompt, user_message))
-
-    async def _agenerate(self, system_prompt: str, user_message: str) -> str:
-        parts: list[str] = []
-        async for msg in self._query(
-            prompt=user_message,
-            options=self._options_cls(system_prompt=system_prompt),
-        ):
-            if msg.type == "text":
-                parts.append(msg.content)
-        result = "".join(parts)
-        if not result:
+        result = subprocess.run(
+            ["claude", "-p", "--output-format", "text"],
+            input=f"{system_prompt}\n\n{user_message}",
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"claude CLI failed (rc={result.returncode}): {result.stderr.strip()}")
+        output = result.stdout.strip()
+        if not output:
             raise ValueError("Claude Code returned empty response")
-        return result.strip()
+        return output
 
 
 def create_backend(backend: str = "claude", **kwargs) -> LLMBackend:

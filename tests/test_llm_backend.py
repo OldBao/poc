@@ -1,9 +1,9 @@
 import json
-import sys
 import pytest
 from unittest.mock import patch, MagicMock
 from src.llm_backend import (
     OpenAIBackend,
+    ClaudeCodeBackend,
     strip_fences,
     create_backend,
 )
@@ -93,37 +93,41 @@ def test_openai_generate_json_list():
 
 # ── ClaudeCodeBackend ──
 
-def _install_mock_claude_sdk():
-    """Install a fake claude_code_sdk module into sys.modules."""
-    mock_sdk = MagicMock()
-    sys.modules["claude_code_sdk"] = mock_sdk
-    return mock_sdk
-
-
-def _cleanup_mock_claude_sdk():
-    sys.modules.pop("claude_code_sdk", None)
-
-
 def test_claude_code_generate():
-    mock_sdk = _install_mock_claude_sdk()
-    try:
-        mock_msg = MagicMock()
-        mock_msg.type = "text"
-        mock_msg.content = '{"type": "sql", "sql": "SELECT 1"}'
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = '{"type": "sql", "sql": "SELECT 1"}'
 
-        async def mock_query(prompt, options):
-            yield mock_msg
-
-        mock_sdk.query = mock_query
-        mock_sdk.ClaudeCodeOptions = MagicMock()
-
-        from src.llm_backend import ClaudeCodeBackend
+    with patch("subprocess.run", return_value=mock_result) as mock_run:
         backend = ClaudeCodeBackend()
         result = backend.generate("system prompt", "user question")
 
-        assert '"type": "sql"' in result
-    finally:
-        _cleanup_mock_claude_sdk()
+    assert result == '{"type": "sql", "sql": "SELECT 1"}'
+    mock_run.assert_called_once()
+    call_kwargs = mock_run.call_args
+    assert call_kwargs[1]["input"] == "system prompt\n\nuser question"
+
+
+def test_claude_code_generate_error():
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stderr = "something went wrong"
+
+    with patch("subprocess.run", return_value=mock_result):
+        backend = ClaudeCodeBackend()
+        with pytest.raises(RuntimeError, match="claude CLI failed"):
+            backend.generate("sys", "usr")
+
+
+def test_claude_code_generate_empty():
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = ""
+
+    with patch("subprocess.run", return_value=mock_result):
+        backend = ClaudeCodeBackend()
+        with pytest.raises(ValueError, match="empty response"):
+            backend.generate("sys", "usr")
 
 
 # ── create_backend factory ──
@@ -135,14 +139,8 @@ def test_create_backend_openai():
 
 
 def test_create_backend_claude():
-    mock_sdk = _install_mock_claude_sdk()
-    try:
-        mock_sdk.ClaudeCodeOptions = MagicMock()
-        from src.llm_backend import ClaudeCodeBackend
-        backend = create_backend("claude")
-        assert isinstance(backend, ClaudeCodeBackend)
-    finally:
-        _cleanup_mock_claude_sdk()
+    backend = create_backend("claude")
+    assert isinstance(backend, ClaudeCodeBackend)
 
 
 def test_create_backend_unknown():
